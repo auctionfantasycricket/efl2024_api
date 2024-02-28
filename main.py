@@ -28,13 +28,6 @@ def get_sample_data():
 # Define a new GET API endpoint that retrieves data from MongoDB based on the collectionName query parameter
 
 
-class JSONEncoder(json.JSONEncoder):
-    def default(self, o):
-        if isinstance(o, ObjectId):
-            return str(o)
-        return super().default(o)
-
-
 @app.route('/get_data', methods=['GET'])
 def get_data_from_mongodb():
     # Get the collectionName from the query parameter
