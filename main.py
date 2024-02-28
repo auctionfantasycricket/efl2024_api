@@ -4,6 +4,7 @@ from bson import ObjectId, json_util
 import certifi
 
 app = Flask(__name__)
+CORS(app)
 ca = certifi.where()
 mongo_client = MongoClient(
     "mongodb+srv://efladmin:god_is_watching@cluster0.eezohvz.mongodb.net/?retryWrites=true&w=majority",
@@ -54,4 +55,4 @@ def get_data_from_mongodb():
 
 if __name__ == '__main__':
     # Run the Flask app on http://127.0.0.1:5000/
-    app.run(debug=True)
+    app.run()
