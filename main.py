@@ -4,6 +4,7 @@ from bson import ObjectId, json_util
 from flask_cors import CORS
 import certifi
 import random
+import urllib
 
 app = Flask(__name__)
 CORS(app)
@@ -47,7 +48,7 @@ def get_data_from_mongodb():
         # You can customize the query as neededß
         data_from_mongo = list(collection.find())
         serialized_data = json_util.dumps(data_from_mongo, default=str)
-        parsed_data = json_util.loads(serialized_data)
+
         #serialized_data = json_util.dumps(data_from_mongo)
         # Deserialize using json_util.loads
         return Response(serialized_data, mimetype="application/json")
@@ -55,15 +56,29 @@ def get_data_from_mongodb():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/getspecificplayer', methods=["GET"])
+def get_a_player():
+    name = request.args.get(
+        'playerName', '')
+    name = urllib.parse.unquote(name)
+    player_query = {"player_name": {"$regex": name, "$options": 'i'}}
+
+    collection_name = request.args.get(
+        'collectionName', 'efl_playersCentral_test')
+    collection = db[collection_name]
+    player_data = collection.find_one(player_query)
+    if player_data:
+        return json.loads(json_util.dumps(player_data))
+    else:
+        return json.loads(json_util.dumps("player not found"))
+
+
 @app.route('/getplayer', methods=["GET"])
 def get_player():
     tiers = {1: [], 2: [], 3: [], 4: []}
     # Get the collectionName from the query parameter
-    collection_name = request.args.get('collectionName')
-
-    # Check if the collectionName is provided
-    if not collection_name:
-        collection_name = 'efl_playersCentral_test'
+    collection_name = request.args.get(
+        'collectionName', 'efl_playersCentral_test')
 
     collection = db[collection_name]
 
