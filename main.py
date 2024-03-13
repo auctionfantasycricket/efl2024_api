@@ -3,6 +3,7 @@ from pymongo import MongoClient
 from bson import ObjectId, json_util
 from flask_cors import CORS
 import certifi
+import random
 
 app = Flask(__name__)
 CORS(app)
@@ -11,7 +12,7 @@ mongo_client = MongoClient(
     "mongodb+srv://efladmin:god_is_watching@cluster0.eezohvz.mongodb.net/?retryWrites=true&w=majority",
     tlsCAFile=ca
 )
-
+db = mongo_client['afc2024']
 
 # Define a sample GET API endpoint
 
@@ -41,7 +42,7 @@ def get_data_from_mongodb():
 
     # Connect to the MongoDB and retrieve data from the specified collection
     try:
-        db = mongo_client['afc2024']
+
         collection = db[collection_name]
         # You can customize the query as neededß
         data_from_mongo = list(collection.find())
@@ -52,6 +53,37 @@ def get_data_from_mongodb():
         return Response(serialized_data, mimetype="application/json")
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+@app.route('/getplayer', methods=["GET"])
+def get_player():
+    tiers = {1: [], 2: [], 3: [], 4: []}
+    # Get the collectionName from the query parameter
+    collection_name = request.args.get('collectionName')
+
+    # Check if the collectionName is provided
+    if not collection_name:
+        collection_name = 'efl_playersCentral_test'
+
+    collection = db[collection_name]
+
+    cursor = collection.find()
+    for item in cursor:
+        tier = item['tier']
+        if tier in tiers and item['status'] == "unsold":
+            tiers[tier].append(item)
+
+    pick = None
+    for tier in range(1, 5):
+        if tiers[tier] and any(player['status'] == 'unsold' for player in tiers[tier]):
+            pick = random.choice(
+                [player for player in tiers[tier] if player['status'] == 'unsold'])
+            break
+
+    if pick is not None:
+        return json.loads(json_util.dumps(pick))
+    else:
+        return json.dumps({"message": "All players are processed"}), 404
 
 
 if __name__ == '__main__':
