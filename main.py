@@ -141,7 +141,7 @@ def update_owner_items(owner_items, updated_data):
     owner_items["currentPurse"] -= int(updated_data["boughtFor"])
     owner_items["totalCount"] += 1
     owner_items["maxBid"] = owner_items["currentPurse"] - \
-        (20 * (15 - owner_items["totalCount"]))
+        (20 * (15 - owner_items["totalCount"] - 1))
 
     role = updated_data["player_role"]
     if role == "Batter":
@@ -150,7 +150,7 @@ def update_owner_items(owner_items, updated_data):
         owner_items["ballCount"] += 1
     elif role == "All-Rounder":
         owner_items["arCount"] += 1
-    elif role == "WK Kepper - Batter":
+    elif role == "WK Keeper - Batter":
         owner_items["batCount"] += 1
         owner_items["wkCount"] += 1
     else:
@@ -160,6 +160,75 @@ def update_owner_items(owner_items, updated_data):
         owner_items["fCount"] += 1
 
     return owner_items
+
+
+@app.route('/deleteplayer/<_id>', methods=['PUT'])
+def delete_player(_id):
+    # Retrieve delete data from request JSON
+    delete_data = request.get_json()
+
+    # Filter to identify the player to delete
+    id_filter = {"_id": ObjectId(_id)}
+
+    # Update player data to reset boughtFor and ownerName
+    update_data = {
+        "$set": {
+            "boughtFor": 0,
+            "ownerTeam": ""
+        }
+    }
+# Get the collectionName from the query parameter
+    collection_name = request.args.get(
+        'collectionName', 'efl_playersCentral_test')
+
+    collection = db[collection_name]
+    # Update player in the collection
+    result = collection.update_one(id_filter, update_data)
+
+    # Retrieve necessary fields from delete data
+    amount = delete_data.get("boughtFor", 0)
+    owner_team = delete_data.get("ownerTeam", "")
+
+    # Query to find owner's data
+    owner_query = {"teamName": owner_team}
+    ownercollection = request.args.get(
+        'ownerCollectionName', 'efl_ownerTeams_test')
+
+    ownercollection = db[ownercollection]
+    owners_data = ownercollection.find(owner_query)
+
+    for owner_items in owners_data:
+        # Adjust owner's current purse and total count
+        owner_items["currentPurse"] += int(amount)
+        owner_items["totalCount"] -= 1
+
+        # Adjust max bid based on total count
+        owner_items["maxBid"] = owner_items["currentPurse"] - \
+            (20 * (15 - owner_items["totalCount"]-1))
+
+        # Adjust specific count based on player's role
+        role = delete_data.get("player_role", "")
+        if role == "Batter":
+            owner_items["batCount"] -= 1
+        elif role == "Bowler":
+            owner_items["ballCount"] -= 1
+        elif role == "All-Rounder":
+            owner_items["arCount"] -= 1
+        elif role == "WK Keeper - Batter":
+            owner_items["batCount"] -= 1
+            owner_items["wkCount"] -= 1
+
+        # Adjust foreign player count if necessary
+        if delete_data.get("country", "") != "India":
+            owner_items["fCount"] -= 1
+
+        # Update owner data in the collection
+        filter_owner = {"_id": owner_items["_id"]}
+        ownercollection.update_one(
+            filter_owner, {"$set": owner_items})
+
+    # Return the result of updating the player
+    return json_util.dumps(result.raw_result)
 
 
 if __name__ == '__main__':
