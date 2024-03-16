@@ -174,7 +174,8 @@ def delete_player(_id):
     update_data = {
         "$set": {
             "boughtFor": 0,
-            "ownerTeam": ""
+            "ownerTeam": "",
+            "status":"unsold"
         }
     }
 # Get the collectionName from the query parameter
