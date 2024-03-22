@@ -231,6 +231,119 @@ def delete_player(_id):
     return json_util.dumps(result.raw_result)
 
 
+def calculate_batting_points(batting_stats):
+    runs = batting_stats['runs']
+    fours = batting_stats['fours']
+    sixes = batting_stats['sixes']
+    strike_rate = batting_stats['sr']
+
+    points = runs + fours + (2 * sixes)
+
+    if runs >= 100:
+        points += 16
+    elif runs >= 50:
+        points += 8
+    elif runs >= 30:
+        points += 4
+
+    if 170 < strike_rate:
+        points += 6
+    elif 150.01 <= strike_rate <= 170:
+        points += 4
+    elif 130 <= strike_rate < 150:
+        points += 2
+    elif 50 <= strike_rate <= 59.99:
+        points -= 4
+    elif strike_rate < 50:
+        points -= 6
+
+    return points
+
+
+def calculate_bowling_points(bowling_stats):
+    wickets = bowling_stats['wickets']
+    # Assuming maiden_overs is provided
+    maiden_overs = bowling_stats.get('maiden_overs', 0)
+    economy = bowling_stats.get('economy', 7.1)  # Assuming economy is provided
+
+    points = 25 * wickets
+
+    if wickets >= 5:
+        points += 16
+    elif wickets == 4:
+        points += 8
+    elif wickets == 3:
+        points += 4
+
+    points += 12 * maiden_overs
+
+    if economy < 5:
+        points += 6
+    elif 5 <= economy <= 5.99:
+        points += 4
+    elif 6 <= economy <= 7:
+        points += 2
+    elif 10 <= economy <= 11:
+        points -= 2
+    elif 11.01 <= economy <= 12:
+        points -= 4
+    elif economy > 12:
+        points -= 6
+
+    return points
+
+
+def calculate_fielding_points(fielding_stats):
+    catches = fielding_stats['catches']
+    runouts = fielding_stats['runouts']
+    stumpings = fielding_stats['stumpings']
+
+    points = 8 * catches
+
+    if catches >= 3:
+        points += 4
+
+    points += 12 * stumpings
+    points += 8 * runouts
+
+    return points
+
+
+def calculate_total_points(player):
+    batting_points = calculate_batting_points(player['batting'])
+    bowling_points = calculate_bowling_points(player['bowling'])
+    fielding_points = calculate_fielding_points(player['fielding'])
+
+    total_points = batting_points + bowling_points + fielding_points
+
+    return {
+        'playername': player['player_name'],
+        'batting points': batting_points,
+        'bowling points': bowling_points,
+        'fielding points': fielding_points,
+        'total_points': total_points
+    }
+
+
+def calculate_points_for_players(players):
+    result = []
+    for player in players:
+        result.append(calculate_total_points(player))
+    return result
+
+
 if __name__ == '__main__':
     # Run the Flask app on http://127.0.0.1:5000/
+    '''
+    players = [
+        {
+            'player_name': 'Ravindra Jadeja',
+            'batting': {'runs': 32, 'fours': 3, 'sixes': 3, 'sr': 123.44},  # 45
+            'bowling': {'wickets': 2, 'maiden_overs': 1, 'economy': 4.2},  # 66
+            # 24+12 = 36
+            'fielding': {'catches': 2, 'runouts': 1, 'stumpings': 1}
+        }
+    ]    
+    print(calculate_points_for_players(players))
+    '''
     app.run()
