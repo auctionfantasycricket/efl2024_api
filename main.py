@@ -437,7 +437,7 @@ def update_score_new():
     collection = db[collection_name]
     owner_collection = db[owner_collection_name]
     # Reset player points before processing matches
-    # reset_player_points(collection)
+    reset_player_points(collection)
     process_matches(responses, collection, owner_collection)
     update_timestamp_points("pointsUpdatedAt")
     return 'OK', 200
