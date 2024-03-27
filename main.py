@@ -235,7 +235,7 @@ def delete_player(_id):
     return json_util.dumps(result.raw_result)
 
 
-def update_timestamp_points():
+def update_timestamp_points(attribute_name):
     pst_tz = timezone(timedelta(hours=-7))
     # Get the current date and time
     now = datetime.now(pst_tz)
@@ -243,15 +243,25 @@ def update_timestamp_points():
     # Format the timestamp string
     timestamp_str = now.strftime("%B %d, %Y at %I:%M%p").replace(" 0", " ")
     globalCollection = db['global_data']
+    if attribute_name == "rankingsUpdatedAt":
+        responses = get_valid_responses()
+        matchid = responses[-1]["match"]["objectId"]
+        globalCollection.update_one(
+            {},
+            {"$set": {
+                attribute_name: timestamp_str,
+                "last-match-id": matchid
+            }}
+        )
 
-    globalCollection.update_one(
-        {}, {"$set": {"pointsUpdatedAt": timestamp_str}})
-    return timestamp_str
+    else:
+        globalCollection.update_one(
+            {}, {"$set": {attribute_name: timestamp_str}})
 
 
 @app.route('/update_timestamp', methods=['POST'])
 def update_timestamp():
-    update_timestamp_points()
+    update_timestamp_points('rankingsUpdatedAt')
     return json_util.dumps("Success")
 
 
@@ -338,7 +348,7 @@ def is_valid(id):
     response = requests.get(url, headers=headers)
     if response.status_code == 200:
         data = response.json()
-        stage = response.json()["match"]["stage"]
+        stage = data["match"]["stage"]
         if stage.upper() == "SCHEDULED":
             return None
         return data
@@ -346,7 +356,8 @@ def is_valid(id):
         return None
 
 
-def get_valid_responses(matchid):
+def get_valid_responses():
+    matchid = get_global_data('last-match-id')
     matchid1 = matchid+1
     matchid2 = matchid+2
     responses = []
@@ -418,8 +429,7 @@ def process_match(response, collection, owner_collection):
 
 @app.route('/update_score_new', methods=['POST'])
 def update_score_new():
-    matchid = get_global_data('last-match-id')
-    responses = get_valid_responses(matchid)
+    responses = get_valid_responses()
     collection_name = request.args.get(
         'collectionName', 'efl_playersCentral_test')
     owner_collection_name = request.args.get(
@@ -429,7 +439,7 @@ def update_score_new():
     # Reset player points before processing matches
     # reset_player_points(collection)
     process_matches(responses, collection, owner_collection)
-    update_timestamp_points()
+    update_timestamp_points("pointsUpdatedAt")
     return 'OK', 200
 
 # Endpoint to update fantasy league scores
@@ -700,6 +710,78 @@ def extract_scorecard(data):
         merged_data[player_name].update(player_stat)
 
     return list(merged_data.values())
+
+
+def update_player_scores(collection):
+    players = collection.find({"status": "sold"})
+    bulk_updates = []
+
+    for player in players:
+        today_points = player.get('todayPoints', {}).get('total_points', 0)
+        total_points = player.get('points', 0)
+        total_points += today_points
+        bulk_updates.append(
+            UpdateOne(
+                {"_id": player["_id"]},
+                {"$set": {"points": total_points}}
+            )
+        )
+
+    if bulk_updates:
+        collection.bulk_write(bulk_updates)
+
+
+def update_owner_scores(owner_collection):
+    owners = owner_collection.find()
+    bulk_updates = []
+
+    for owner in owners:
+        today_points = owner.get('todayPoints', 0)
+        total_points = owner.get('totalPoints', 0)
+        total_points += today_points
+        bulk_updates.append(
+            UpdateOne(
+                {"_id": owner["_id"]},
+                {"$set": {"totalPoints": total_points}}
+            )
+        )
+
+    if bulk_updates:
+        owner_collection.bulk_write(bulk_updates)
+
+
+def update_ranks(owner_collection):
+    documents = owner_collection.find().sort("totalPoints", DESCENDING)
+    rank = 1
+
+    for document in documents:
+        document_id = document["_id"]
+        standings = document.get("standings", [])
+        standings.append(rank)
+
+        owner_collection.update_one(
+            {"_id": document_id},
+            {"$set": {"rank": rank, "standings": standings}}
+        )
+
+        rank += 1
+
+
+@app.route('/eod_update', methods=['POST'])
+def eod_update():
+    collection_name = request.args.get(
+        'collectionName', 'efl_playersCentral_test')
+    owner_collection_name = request.args.get(
+        'ownerCollectionName', 'efl_ownerTeams_test')
+
+    collection = db[collection_name]
+    owner_collection = db[owner_collection_name]
+
+    update_player_scores(collection)
+    update_owner_scores(owner_collection)
+    update_ranks(owner_collection)
+    update_timestamp_points('rankingsUpdatedAt')
+    return 'OK', 200
 
 
 if __name__ == '__main__':
