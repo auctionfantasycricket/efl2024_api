@@ -443,7 +443,6 @@ def get_valid_responses():
     matchid = get_global_data('last-match-id')
     matchid1 = matchid+1
     matchid2 = matchid+2
-    matchid2 = 1426260
     responses = []
     response = is_valid(matchid1)
     if response:
