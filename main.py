@@ -235,6 +235,89 @@ def delete_player(_id):
     return json_util.dumps(result.raw_result)
 
 
+@app.route('/drop_player/<_id>', methods=['PUT'])
+def drop_player(_id):
+    # Filter to identify the player to delete
+    id_filter = {"_id": ObjectId(_id)}
+
+    # Get the collectionName from the query parameter
+    collection_name = request.args.get(
+        'collectionName', 'efl_playersCentral_test')
+
+    # Get player information from playerCentral
+    player_collection = db[collection_name]
+    player_data = player_collection.find_one(id_filter)
+
+    # Retrieve necessary fields from player data
+    amount = player_data.get("boughtFor", 0)
+    owner_team = player_data.get("ownerTeam", "")
+    player_name = player_data.get("player_name", "")
+    points = player_data.get("points", 0)
+    transfer_date = datetime.now().strftime("%d %B, %Y")
+
+    # Update player data to reset boughtFor and ownerName
+    update_data = {
+        "$set": {
+            "boughtFor": 0,
+            "ownerTeam": "",
+            "status": "unsold-dropped",
+            "points": 0,
+        }
+    }
+
+    # Update player in the collection
+    result = player_collection.update_one(id_filter, update_data)
+
+    # Query to find owner's data
+    owner_query = {"teamName": owner_team}
+    ownercollection_name = request.args.get(
+        'ownerCollectionName', 'efl_ownerTeams_test')
+    ownercollection = db[ownercollection_name]
+    owner = ownercollection.find_one(owner_query)
+
+    # Add transfer history to owner
+    transfer_history_entry = {
+        "player_name": player_name,
+        "points": points,
+        "transfer_date": transfer_date,
+        "boughtFor": amount
+    }
+    if "transferHistory" not in owner:
+        owner["transferHistory"] = [transfer_history_entry]
+    else:
+        owner["transferHistory"].append(transfer_history_entry)
+
+    # Adjust owner's current purse and total count
+    owner["currentPurse"] += int(amount)
+    owner["totalCount"] -= 1
+
+    # Adjust max bid based on total count
+    owner["maxBid"] = owner["currentPurse"] - \
+        (20 * (15 - owner["totalCount"]-1))
+
+    # Adjust specific count based on player's role
+    role = player_data.get("player_role", "")
+    if role == "Batter":
+        owner["batCount"] -= 1
+    elif role == "Bowler":
+        owner["ballCount"] -= 1
+    elif role == "All-Rounder":
+        owner["arCount"] -= 1
+    elif role == "WK Keeper - Batter":
+        owner["batCount"] -= 1
+        owner["wkCount"] -= 1
+
+    # Adjust foreign player count if necessary
+    if player_data.get("country", "") != "India":
+        owner["fCount"] -= 1
+
+    # Update owner data in the collection
+    ownercollection.update_one({"_id": owner["_id"]}, {"$set": owner})
+
+    # Return the result of updating the player
+    return json_util.dumps(result.raw_result)
+
+
 def update_timestamp_points(attribute_name):
     pst_tz = timezone(timedelta(hours=-7))
     # Get the current date and time
@@ -360,6 +443,7 @@ def get_valid_responses():
     matchid = get_global_data('last-match-id')
     matchid1 = matchid+1
     matchid2 = matchid+2
+    matchid2 = 1426260
     responses = []
     response = is_valid(matchid1)
     if response:
@@ -767,6 +851,95 @@ def update_ranks(owner_collection):
         rank += 1
 
 
+def get_most_valuable_players(api_url):
+    try:
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3'
+        }
+        response = requests.get(api_url, headers=headers)
+        response.raise_for_status()  # Raise an exception for bad status codes
+        data = response.json()
+
+        player_map = {}
+
+        for result in data['content']['smartStats']['results']:
+            # Extracting player name and points
+            player_name = result['player']['longName']
+            points = result['totalImpact']
+
+            # Convert player name to the required format (S Narine)
+            split_name = player_name.split()
+            if len(split_name) > 1:
+                first_name = split_name[0][0]
+                last_name = split_name[-1]
+                formatted_name = f"{first_name} {last_name}"
+            else:
+                formatted_name = player_name
+
+            # Add player name and points to the map
+            player_map[formatted_name] = points
+
+        return player_map
+
+    except requests.exceptions.RequestException as e:
+        print(f"Error fetching data: {e}")
+        return None
+
+
+def update_mongo_collection_family(player_points_map):
+
+    collection = db["family_playerPoints"]
+
+    bulk_operations = []
+
+    # Iterate through all documents in the collection
+    for team_doc in collection.find():
+        team_name = team_doc["team_name"]
+        players = team_doc["players"]
+
+        # Initialize team total points
+        team_total_points = 0
+
+        # Iterate through players in the team
+        for player in players:
+            player_name = player["player_name"]
+
+            # Look up points for the player in the player_points_map
+            if player_name in player_points_map:
+                points = player_points_map[player_name]
+                team_total_points += points
+
+                # Update player's points in the collection
+                bulk_operations.append(
+                    UpdateOne(
+                        {"team_name": team_name, "players.player_name": player_name},
+                        {"$set": {"players.$.points": points}}
+                    )
+                )
+            else:
+                print(f"No points found for player '{player_name}'.")
+
+        # Update total points for the team in the collection
+        bulk_operations.append(
+            UpdateOne(
+                {"team_name": team_name},
+                {"$set": {"total": team_total_points}}
+            )
+        )
+
+    # Execute bulk operations
+    result = collection.bulk_write(bulk_operations)
+
+    # Print result if needed
+    print(result.bulk_api_result)
+
+
+def update_family_league():
+    api_url = "https://hs-consumer-api.espncricinfo.com/v1/pages/series/most-valuable-players?lang=en&seriesId=1410320"
+    player_points_map = get_most_valuable_players(api_url)
+    update_mongo_collection_family(player_points_map)
+
+
 @app.route('/eod_update', methods=['POST'])
 def eod_update():
     collection_name = request.args.get(
@@ -781,6 +954,7 @@ def eod_update():
     update_owner_scores(owner_collection)
     update_ranks(owner_collection)
     update_timestamp_points('rankingsUpdatedAt')
+    update_family_league()
     return 'OK', 200
 
 
