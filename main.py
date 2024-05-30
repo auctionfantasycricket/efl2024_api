@@ -1,24 +1,13 @@
-from flask import Flask, jsonify, request, json, Response
-from pymongo import MongoClient, UpdateOne, DESCENDING
+from flask import jsonify, request, json, Response
+from pymongo import UpdateOne, DESCENDING
 from bson import ObjectId, json_util
-from flask_cors import CORS
-import certifi
 import random
 import urllib
 import requests
 from datetime import datetime, timezone, timedelta
+from config import app, mongo_client  # Import the app from the config module
 
-
-app = Flask(__name__)
-CORS(app)
-ca = certifi.where()
-mongo_client = MongoClient(
-    "mongodb+srv://efladmin:god_is_watching@cluster0.eezohvz.mongodb.net/?retryWrites=true&w=majority",
-    tlsCAFile=ca
-)
 db = mongo_client['eflDraft2024']
-
-# Define a sample GET API endpoint
 
 
 @app.route('/sample_api', methods=['GET'])
