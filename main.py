@@ -16,7 +16,7 @@ mongo_client = MongoClient(
     "mongodb+srv://efladmin:god_is_watching@cluster0.eezohvz.mongodb.net/?retryWrites=true&w=majority",
     tlsCAFile=ca
 )
-db = mongo_client['afc2024']
+db = mongo_client['eflDraft2024']
 
 # Define a sample GET API endpoint
 
