@@ -69,7 +69,7 @@ def draftplayer(_id):
     updated_data.pop('_id', None)
     result = playerCollection.update_one(filter, {"$set": updated_data})
 
-    if updated_data['status'] == "sold":
+    if updated_data['status'].lower() == "sold":
         ownercollection = request.args.get(
             'ownerCollectionName', 'eflDraft_ownerTeams')
 
