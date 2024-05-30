@@ -5,9 +5,8 @@ import random
 import urllib
 import requests
 from datetime import datetime, timezone, timedelta
-from config import app, mongo_client  # Import the app from the config module
-
-db = mongo_client['eflDraft2024']
+from config import app, db  # Import the app from the config module
+from draftapi import draftapi_bp  # Import the Blueprint
 
 
 @app.route('/sample_api', methods=['GET'])
@@ -945,6 +944,8 @@ def eod_update():
     update_family_league()
     return 'OK', 200
 
+
+app.register_blueprint(draftapi_bp)
 
 if __name__ == '__main__':
     # Run the Flask app on http://127.0.0.1:5000/
