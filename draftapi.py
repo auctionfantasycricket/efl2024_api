@@ -50,6 +50,26 @@ def update_owner_items(owner_items, player_data):
     return owner_items
 
 
+@draftapi_bp.route('/getrandomdraftplayer', methods=["GET"])
+def get_random_player():
+    collection_name = request.args.get(
+        'collectionName', 'eflDraft_playersCentral')
+    collection = db[collection_name]
+
+    # Using aggregation to get a random unsold player
+    pipeline = [
+        {"$match": {"status": "unsold"}},
+        {"$sample": {"size": 1}}
+    ]
+
+    player_data = list(collection.aggregate(pipeline))
+
+    if player_data:
+        return json_util.dumps(player_data[0])
+    else:
+        return json_util.dumps("no unsold player found")
+
+
 @draftapi_bp.route('/draftplayer/<_id>', methods=['PUT'])
 def draftplayer(_id):
     updated_data = request.get_json()

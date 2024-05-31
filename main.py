@@ -52,12 +52,15 @@ def get_a_player():
     name = request.args.get(
         'playerName', '')
     name = urllib.parse.unquote(name)
-    player_query = {"player_name": {"$regex": name, "$options": 'i'}}
+    player_query = {
+        "player_name": {"$regex": name, "$options": 'i'},
+        "status": "unsold"
+    }
 
-    #modified collection to get player from draft central
+    # modified collection to get player from draft central
     collection_name = request.args.get(
         'collectionName', 'eflDraft_playersCentral')
-    
+
     collection = db[collection_name]
     player_data = collection.find_one(player_query)
     if player_data:
