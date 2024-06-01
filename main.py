@@ -956,9 +956,9 @@ def update_family_league():
 @app.route('/eod_update', methods=['POST'])
 def eod_update():
     collection_name = request.args.get(
-        'collectionName', 'efl_playersCentral_test')
+        'collectionName', 'eflDraft_playersCentral')
     owner_collection_name = request.args.get(
-        'ownerCollectionName', 'efl_ownerTeams_test')
+        'ownerCollectionName', 'eflDraft_ownerTeams')
 
     collection = db[collection_name]
     owner_collection = db[owner_collection_name]
