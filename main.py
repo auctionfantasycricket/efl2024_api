@@ -420,8 +420,7 @@ def is_valid(id):
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3'
     }
-    url = f"https://hs-consumer-api.espncricinfo.com/v1/pages/match/details?lang=en&seriesId=1410320&matchId={id}&latest=true"
-
+    url = f"https://hs-consumer-api.espncricinfo.com/v1/pages/match/details?lang=en&seriesId=1411166&matchId={id}&latest=true"
     response = requests.get(url, headers=headers)
     if response.status_code == 200:
         data = response.json()
@@ -437,11 +436,15 @@ def get_valid_responses():
     matchid = get_global_data('last-match-id')
     matchid1 = matchid+1
     matchid2 = matchid+2
+    matchid3 = matchid+3
     responses = []
     response = is_valid(matchid1)
     if response:
         responses.append(response)
     response = is_valid(matchid2)
+    if response:
+        responses.append(response)
+    response = is_valid(matchid3)
     if response:
         responses.append(response)
     return responses
@@ -508,9 +511,9 @@ def process_match(response, collection, owner_collection):
 def update_score_new():
     responses = get_valid_responses()
     collection_name = request.args.get(
-        'collectionName', 'efl_playersCentral_test')
+        'collectionName', 'eflDraft_playersCentral')
     owner_collection_name = request.args.get(
-        'ownerCollectionName', 'efl_ownerTeams_test')
+        'ownerCollectionName', 'eflDraft_ownerTeams')
     collection = db[collection_name]
     owner_collection = db[owner_collection_name]
     # Reset player points before processing matches
@@ -636,16 +639,18 @@ def calculate_batting_points(batting_stats):
     elif runs >= 30:
         points += 4
 
-    if 170 < strike_rate:
-        points += 6
-    elif 150.01 <= strike_rate <= 170:
-        points += 4
-    elif 130 <= strike_rate < 150:
-        points += 2
-    elif 50 <= strike_rate <= 59.99 and balls >= 10:
-        points -= 4
-    elif strike_rate < 50 and balls >= 10:
-        points -= 6
+   # Perform the calculation only if balls >= 10
+    if balls >= 10:
+        if strike_rate > 170:
+            points += 6
+        elif 150.01 <= strike_rate <= 170:
+            points += 4
+        elif 130 <= strike_rate < 150:
+            points += 2
+        elif 50 <= strike_rate <= 59.99:
+            points -= 4
+        elif strike_rate < 50:
+            points -= 6
 
     if isOut and runs == 0:
         points -= 2
@@ -656,10 +661,14 @@ def calculate_batting_points(batting_stats):
 def calculate_bowling_points(bowling_stats):
     wickets = bowling_stats['wickets']
     # Assuming maiden_overs is provided
-    maiden_overs = bowling_stats.get('maiden_overs', 0)
+    maiden_overs = bowling_stats.get('maidens', 0)
     economy = bowling_stats.get('economy', 7.1)  # Assuming economy is provided
+    lbw_bowled_count = bowling_stats.get('lbwbowledcount', 0)
+    overs_bowled = bowling_stats.get('overs', 0)
 
     points = 25 * wickets
+
+    points += 8 * lbw_bowled_count
 
     if wickets >= 5:
         points += 16
@@ -670,18 +679,19 @@ def calculate_bowling_points(bowling_stats):
 
     points += 12 * maiden_overs
 
-    if economy < 5:
-        points += 6
-    elif 5 <= economy <= 5.99:
-        points += 4
-    elif 6 <= economy <= 7:
-        points += 2
-    elif 10 <= economy <= 11:
-        points -= 2
-    elif 11.01 <= economy <= 12:
-        points -= 4
-    elif economy > 12:
-        points -= 6
+    if overs_bowled >= 2:
+        if economy < 5:
+            points += 6
+        elif 5 <= economy <= 5.99:
+            points += 4
+        elif 6 <= economy <= 7:
+            points += 2
+        elif 10 <= economy <= 11:
+            points -= 2
+        elif 11.01 <= economy <= 12:
+            points -= 4
+        elif economy > 12:
+            points -= 6
 
     return points
 
@@ -728,10 +738,18 @@ def calculate_points_for_players(players):
     return result
 
 
+def get_count_of_lbw_and_bowled(bowler):
+    count = 0
+    for wicket in bowler['inningWickets']:
+        if wicket['dismissalType'] in [2, 3]:
+            count += 1
+    return count
+
+
 def extract_scorecard(data):
     player_stats = []
 
-    for inning in data.get("scorecard", {}).get("innings", []):
+    for inning in data.get("content", {}).get("innings", []):
         bat_stats = []
         bowl_stats = []
         field_stats = {}
@@ -756,7 +774,9 @@ def extract_scorecard(data):
                 "bowling": {
                     "wickets": bowler["wickets"],
                     "maidens": bowler["maidens"],
-                    "economy": bowler["economy"]
+                    "economy": bowler["economy"],
+                    "lbwbowledcount": get_count_of_lbw_and_bowled(bowler),
+                    "overs": bowler["overs"]
                 }
             })
 
@@ -947,7 +967,6 @@ def eod_update():
     update_owner_scores(owner_collection)
     update_ranks(owner_collection)
     update_timestamp_points('rankingsUpdatedAt')
-    update_family_league()
     return 'OK', 200
 
 
@@ -956,18 +975,15 @@ app.register_blueprint(draftapi_bp)
 if __name__ == '__main__':
     # Run the Flask app on http://127.0.0.1:5000/
     '''
-    players = [
-        {
-            'player_name': 'Ravindra Jadeja',
-            'batting': {'runs': 32, 'fours': 3, 'sixes': 3, 'sr': 123.44},  # 45
-            'bowling': {'wickets': 2, 'maiden_overs': 1, 'economy': 4.2},  # 66
-            # 24+12 = 36
-            'fielding': {'catches': 2, 'runouts': 1, 'stumpings': 1}
-        }
-    ]    
-    print(calculate_points_for_players(players))
-    url = "https://hs-consumer-api.espncricinfo.com/v1/pages/match/details?lang=en&seriesId=1410320&matchId=1422119&latest=true"
-    scorecard = extract_scorecard(url)
+    url = "https://hs-consumer-api.espncricinfo.com/v1/pages/match/scorecard?lang=en&seriesId=1434088&matchId=1434104&latest=true"
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3'
+    }
+
+    response = requests.get(url, headers=headers)
+    if response.status_code == 200:
+        data = response.json()
+    scorecard = extract_scorecard(data)
     # print(scorecard)
     print(calculate_points_for_players(scorecard))
     '''
