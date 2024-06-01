@@ -52,6 +52,7 @@ def get_a_player():
     name = request.args.get(
         'playerName', '')
     name = urllib.parse.unquote(name)
+
     player_query = {
         "player_name": {"$regex": name, "$options": 'i'},
         "status": "unsold"

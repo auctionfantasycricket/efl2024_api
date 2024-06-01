@@ -1,6 +1,7 @@
 from flask import Blueprint, request
 from config import db
 from bson import ObjectId, json_util
+from datetime import datetime
 
 
 draftapi_bp = Blueprint('draftapi', __name__)
@@ -68,6 +69,92 @@ def get_random_player():
         return json_util.dumps(player_data[0])
     else:
         return json_util.dumps("no unsold player found")
+
+
+def fetch_team_owners_by_email(email, owner_collection_name):
+    team_owners = db[owner_collection_name]
+    return list(team_owners.find({'emails': email}))
+
+
+def get_team_owner_response(team_owners_found):
+    if not team_owners_found:
+        return {'error': 'No team owners found for this email'}, 404
+    elif len(team_owners_found) > 1:
+        return {'error': 'Multiple team owners found for this email'}, 500
+    else:
+        return {
+            'teamName': team_owners_found[0]['teamName'],
+            'currentWaiver': team_owners_found[0]['currentWaiver']
+        }, 200
+
+
+def get_team_owner_by_email(email):
+    try:
+        owner_collection_name = request.args.get(
+            'ownerCollectionName', 'eflDraft_ownerTeams')
+        team_owners_found = fetch_team_owners_by_email(
+            email, owner_collection_name)
+        response_data, status_code = get_team_owner_response(team_owners_found)
+        response = json_util.dumps(response_data)
+        return response, status_code
+    except Exception as e:
+        response = json_util.dumps({'error': str(e)})
+        return response, 500
+
+# Define the route
+
+
+@draftapi_bp.route('/getTeamOwnerByEmail/<email>', methods=['GET'])
+def get_team_owner(email):
+    return get_team_owner_by_email(email)
+
+
+def update_current_waiver(email, current_waiver, owner_collection_name):
+    team_owners = db[owner_collection_name]
+    result = team_owners.update_one(
+        {'emails': email},
+        {'$set': {'currentWaiver': current_waiver}}
+    )
+    return result.modified_count > 0
+
+
+def validate_waiver_data(current_waiver):
+    if len(current_waiver.get('in', [])) != 4:
+        return False, "The 'in' array must contain exactly 4 elements."
+    if len(current_waiver.get('out', [])) != 2:
+        return False, "The 'out' array must contain exactly 2 elements."
+    return True, ""
+
+
+@draftapi_bp.route('/updateCurrentWaiver/<email>', methods=['PUT'])
+def update_current_waiver_api(email):
+    try:
+        owner_collection_name = request.args.get(
+            'ownerCollectionName', 'eflDraft_ownerTeams')
+        current_waiver = request.json.get('currentWaiver')
+
+        # Validate currentWaiver data
+        is_valid, validation_message = validate_waiver_data(current_waiver)
+        if not is_valid:
+            response = json_util.dumps({'error': validation_message})
+            return response, 400
+
+        # Add lastUpdatedBy and lastUpdatedTime
+        current_waiver['lastUpdatedBy'] = email
+        current_waiver['lastUpdatedTime'] = datetime.now().strftime(
+            '%dth %B at %I:%M:%S %p')
+
+        if update_current_waiver(email, current_waiver, owner_collection_name):
+            response = json_util.dumps(
+                {'message': 'Current waiver updated successfully'})
+            return response, 200
+        else:
+            response = json_util.dumps(
+                {'error': 'No team owner found for the provided email'})
+            return response, 404
+    except Exception as e:
+        response = json_util.dumps({'error': str(e)})
+        return response, 500
 
 
 @draftapi_bp.route('/draftplayer/<_id>', methods=['PUT'])
