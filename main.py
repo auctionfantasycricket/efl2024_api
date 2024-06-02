@@ -749,7 +749,7 @@ def get_count_of_lbw_and_bowled(bowler):
 def extract_scorecard(data):
     player_stats = []
 
-    for inning in data.get("content", {}).get("innings", []):
+    for inning in data.get("scorecard", {}).get("innings", []):
         bat_stats = []
         bowl_stats = []
         field_stats = {}
