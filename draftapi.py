@@ -1,7 +1,7 @@
 from flask import Blueprint, request
 from config import db
 from bson import ObjectId, json_util
-from datetime import datetime
+from datetime import datetime, timedelta
 
 
 draftapi_bp = Blueprint('draftapi', __name__)
@@ -126,6 +126,14 @@ def validate_waiver_data(current_waiver):
     return True, ""
 
 
+@draftapi_bp.route('/processWaivers', methods=['POST'])
+def process_waivers(email):
+    # 1 Get Teams
+    # 2 Sort and make orders
+    # 3 process
+    return "OK", 200
+
+
 @draftapi_bp.route('/updateCurrentWaiver/<email>', methods=['PUT'])
 def update_current_waiver_api(email):
     try:
@@ -141,7 +149,15 @@ def update_current_waiver_api(email):
 
         # Add lastUpdatedBy and lastUpdatedTime
         current_waiver['lastUpdatedBy'] = email
-        current_waiver['lastUpdatedTime'] = datetime.now().strftime(
+        # Get the current UTC time
+        now_utc = datetime.utcnow()
+
+        # Calculate the PST time (UTC-8)
+        pst_offset = timedelta(hours=-8)
+        now_pst = now_utc + pst_offset
+
+        # Format the time as required
+        current_waiver['lastUpdatedTime'] = now_pst.strftime(
             '%dth %B at %I:%M:%S %p')
 
         if update_current_waiver(email, current_waiver, owner_collection_name):
