@@ -3,13 +3,6 @@ from config import db
 from bson import ObjectId, json_util
 from datetime import datetime, timedelta
 from collections import deque
-from Crypto.Cipher import AES
-from Crypto.Util.Padding import unpad
-import hashlib
-
-
-import base64
-import json
 
 
 draftapi_bp = Blueprint('draftapi', __name__)
