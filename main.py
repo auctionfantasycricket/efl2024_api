@@ -425,7 +425,7 @@ def is_valid(id):
     if response.status_code == 200:
         data = response.json()
         stage = data["match"]["stage"]
-        if stage.upper() == "SCHEDULED":
+        if stage.upper() == "SCHEDULED" or not data['scorecard']:
             return None
         return data
     else:
