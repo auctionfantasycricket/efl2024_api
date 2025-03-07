@@ -7,6 +7,7 @@ import requests
 from datetime import datetime, timezone, timedelta
 from config import app, db  # Import the app from the config module
 from draftapi import draftapi_bp  # Import the Blueprint
+import logging
 
 
 @app.route('/sample_api', methods=['GET'])
@@ -44,6 +45,7 @@ def get_data_from_mongodb():
         # Deserialize using json_util.loads
         return Response(serialized_data, mimetype="application/json")
     except Exception as e:
+        logging.error(f"Error fetching data: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 
