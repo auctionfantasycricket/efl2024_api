@@ -1,8 +1,9 @@
 from flask import Blueprint, request
-from config import db
+from config import db, app
 from bson import ObjectId, json_util
 from datetime import datetime, timedelta
 from collections import deque
+import base64
 
 
 draftapi_bp = Blueprint('draftapi', __name__)
@@ -134,10 +135,17 @@ def decrypt_arr(arr):
     return outArr
 
 
+def de_arr(arr):
+    output = []
+    for a in arr:
+        output.append(base64.b64decode(a).decode('utf-8'))
+    return output
+
+
 def get_teams_and_sort():
     # 1 Get Teams
     owner_collection_name = request.args.get(
-        'ownerCollectionName', 'eflDraft_ownerTeams_backup')
+        'ownerCollectionName', 'eflDraft_ownerTeams')
     ownercollection = db[owner_collection_name]
     allDocs = ownercollection.find().sort('rank', -1)
     docs_dict = {}
@@ -146,9 +154,11 @@ def get_teams_and_sort():
     for doc in allDocs:
         teamName = doc["teamName"]
         docs_dict[teamName] = {'in': [], 'out': []}
-        docs_dict[teamName]['in'].extend(doc["currentWaiver"]["in"])
+        decodedarr = de_arr(doc["currentWaiver"]["in"])
+        docs_dict[teamName]['in'].extend(decodedarr)
+        decodedarr = de_arr(doc["currentWaiver"]["out"])
         # decrypt_arr(doc["currentWaivers"]["in"]))
-        docs_dict[teamName]['out'].extend(doc["currentWaiver"]["out"])
+        docs_dict[teamName]['out'].extend(decodedarr)
         docs_dict[teamName]['batCount'] = doc["batCount"]
         docs_dict[teamName]['arCount'] = doc["arCount"]
         docs_dict[teamName]['wkCount'] = doc["wkCount"]
@@ -191,7 +201,7 @@ def swap_possible(teamName, teamdict, inPlayer, outPlayer):
     #outPlayer = 'Rohit Sharma'
     outRole, outCountry = getRoleAndCountry(outPlayer)
     if not inRole or not inCountry or not outRole or not outCountry:
-        return True
+        return False
 
     tempBatCount, tempBallCount, tempARCount, tempWKCount, tempFCount = teamdict[teamName]['batCount'], teamdict[
         teamName]['ballCount'], teamdict[teamName]['arCount'], teamdict[teamName]['wkCount'], teamdict[teamName]['fCount']
@@ -204,7 +214,7 @@ def swap_possible(teamName, teamdict, inPlayer, outPlayer):
         tempARCount += 1
     elif inRole == "wicketkeeper":
         tempBatCount += 1
-        tempBallCount += 1
+        tempWKCount += 1
 
     associate_nations = ["Canada", "Namibia", "Nepal", "Netherlands", "Oman",
                          "Papua-new-guinea", "Scotland", "Uganda", "United-states-of-america", "Ireland"]
@@ -222,9 +232,9 @@ def swap_possible(teamName, teamdict, inPlayer, outPlayer):
         tempARCount -= 1
     elif outRole == "wicketkeeper":
         tempBatCount -= 1
-        tempBallCount -= 1
+        tempWKCount -= 1
 
-    if tempBatCount >= 4 and tempBallCount >= 4 and tempARCount >= 1 and tempWKCount >= 1 and tempFCount >= 2:
+    if tempBatCount >= 4 and tempBallCount >= 4 and tempARCount >= 1 and tempWKCount >= 1:
         return True
     else:
         return False
@@ -236,11 +246,19 @@ def check_criteria(teamName, teamdict, playerName, outArr):
     for i, o in enumerate(outArr):
         if o == 'X':
             continue
+        if o == '':
+            success = False
+            break
         if swap_possible(teamName, teamdict, playerName, o):
             outRet = o
             outArr[i] = 'X'
             success = True
             break
+        else:
+            outRet = o
+            success = False
+            break
+
     return success, outRet, outArr
 
 
@@ -252,7 +270,12 @@ def decode_and_process(orders, docs_dict):
     for team in orders[0]:
         teamPlayersIn[team] = []
         teamPlayersOut[team] = []
-
+    print(docs_dict)
+    bulk_add_input = []
+    bulk_out_input = []
+    animation_input = {}
+    print(end='\n')
+    print(docs_dict, end='\n')
     for i in range(4):
         obj = {'pref': i+1, 'picks': [], 'result': [], 'reason': []}
         for teamToProcess in orders[i]:
@@ -260,24 +283,29 @@ def decode_and_process(orders, docs_dict):
 
             playerToProcess = docs_dict[teamToProcess]['in'][i]
             obj['picks'].append(teamToProcess + ' -> ' + playerToProcess)
+            if len(teamPlayersIn[teamToProcess]) == 2:
+                obj['result'].append('Fail')
+                obj['reason'].append(teamToProcess + ' already picked up 2')
+                animation_input[(teamToProcess, playerToProcess)] = False
+                continue
             if playerToProcess == '':
                 obj['result'].append('Fail')
                 obj['reason'].append('empty player')
+                animation_input[(teamToProcess, playerToProcess)] = False
                 continue
             if playerToProcess in playersTaken:
                 obj['result'].append('Fail')
                 obj['reason'].append(playerToProcess + ' already taken')
+                animation_input[(teamToProcess, playerToProcess)] = False
                 continue
-            if len(teamPlayersIn[teamToProcess]) == 2:
-                obj['result'].append('Fail')
-                obj['reason'].append(teamToProcess + ' already picked up 2')
-                continue
+
             satisfied, outPlayer, docs_dict[teamToProcess]['out'] = check_criteria(
                 teamToProcess, docs_dict, playerToProcess, docs_dict[teamToProcess]['out'])
             if not satisfied:
                 obj['result'].append('Fail')
                 obj['reason'].append('getting ' + playerToProcess + ' and dropping ' +
                                      outPlayer + ' breaks team restriction condition')
+                animation_input[(teamToProcess, playerToProcess)] = False
             else:
                 obj['result'].append('Successful')
                 obj['reason'].append(
@@ -285,10 +313,108 @@ def decode_and_process(orders, docs_dict):
                 teamPlayersIn[teamToProcess].append(playerToProcess)
                 teamPlayersOut[teamToProcess].append(outPlayer)
                 playersTaken.add(playerToProcess)
+                input_obj = {'teamName': teamToProcess,
+                             'playerName': playerToProcess}
+                bulk_add_input.append(input_obj)
+                bulk_out_input.append(outPlayer)
+                animation_input[(teamToProcess, playerToProcess)] = True
 
         results.append(obj)
-    print(results)
+    print(end='\n')
+    print(bulk_add_input, end='\n')
+    print(end='\n')
+    print(bulk_out_input, end='\n')
+    print(end='\n')
+    print(results, end='\n')
+    print(end='\n')
+    print(orders, end='\n')
+    print(end='\n')
+    print(animation_input, end='\n')
+
     return results
+
+
+@draftapi_bp.route('/drop_draft_player/<input_player>', methods=['PUT'])
+def drop_draft_player(input_player):
+    # Filter to identify the player to delete
+    id_filter = {"player_name": input_player}
+
+    # Get the collectionName from the query parameter
+    collection_name = request.args.get(
+        'collectionName', 'eflDraft_playersCentral')
+
+    # Get player information from playerCentral
+    player_collection = db[collection_name]
+    player_data = player_collection.find_one(id_filter)
+
+    # Retrieve necessary fields from player data
+
+    owner_team = player_data.get("ownerTeam", "")
+    player_name = player_data.get("player_name", "")
+    points = player_data.get("points", 0)
+    transfer_date = datetime.now().strftime("%d %B, %Y")
+
+    # Update player data to reset boughtFor and ownerName
+    update_data = {
+        "$set": {
+
+            "ownerTeam": "",
+            "status": "unsold-dropped",
+            "points": 0,
+        }
+    }
+
+    # Update player in the collection
+    result = player_collection.update_one(id_filter, update_data)
+
+    # Query to find owner's data
+    owner_query = {"teamName": owner_team}
+    ownercollection_name = request.args.get(
+        'ownerCollectionName', 'eflDraft_ownerTeams')
+    ownercollection = db[ownercollection_name]
+    owner = ownercollection.find_one(owner_query)
+
+    # Add transfer history to owner
+    transfer_history_entry = {
+        "player_name": player_name,
+        "points": points,
+        "transfer_date": transfer_date,
+
+    }
+    if "transferHistory" not in owner:
+        owner["transferHistory"] = [transfer_history_entry]
+    else:
+        owner["transferHistory"].append(transfer_history_entry)
+
+    owner["totalCount"] -= 1
+
+    # Adjust specific count based on player's role
+    role = player_data.get("player_role", "")
+    if role == "batter":
+        owner["batCount"] -= 1
+    elif role == "bowler":
+        owner["ballCount"] -= 1
+    elif role == "allrounder":
+        owner["arCount"] -= 1
+    elif role == "wicketkeeper":
+        owner["batCount"] -= 1
+        owner["wkCount"] -= 1
+    else:
+        print("Role not found")
+
+    # Adjust foreign player count if necessary
+
+    associate_nations = ["Canada", "Namibia", "Nepal", "Netherlands", "Oman",
+                         "Papua-new-guinea", "Scotland", "Uganda", "United-states-of-america", "Ireland"]
+
+    if player_data["country"] in associate_nations:
+        owner["fCount"] -= 1
+
+    # Update owner data in the collection
+    ownercollection.update_one({"_id": owner["_id"]}, {"$set": owner})
+
+    # Return the result of updating the player
+    return json_util.dumps(result.raw_result)
 
 
 @draftapi_bp.route('/processWaivers', methods=['POST'])
@@ -365,6 +491,15 @@ def draftplayer(_id):
 
     # Exclude _id from update_data to avoid updating it
     updated_data.pop('_id', None)
+    today_points = {
+        "batting_points": 0,
+        "bowling_points": 0,
+        "fielding_points": 0,
+        "total_points": 0
+    }
+
+# Add the 'todayPoints' object to 'updated_data'
+    updated_data["todayPoints"] = today_points
     result = playerCollection.update_one(filter, {"$set": updated_data})
 
     if updated_data['status'].lower() == "sold":
@@ -376,3 +511,62 @@ def draftplayer(_id):
         update_owner_data(updated_data, ownercollection, player_data)
 
     return json_util.dumps(result.raw_result)
+
+
+@draftapi_bp.route('/bulk-draftplayer', methods=['POST'])
+def bulk_draftplayer():
+    payloads = request.get_json()
+    results = []
+
+    with app.test_client() as client:
+        for payload in payloads:
+
+            collection_name = payload.get(
+                "collectionName", "eflDraft_playersCentral")
+            owner_collection_name = payload.get(
+                "ownerCollectionName", "eflDraft_ownerTeams")
+            player_name = payload.get('playerName', '')
+
+            team_name = payload.get('teamName', '')
+            collection = db[collection_name]
+
+  # Find the document with the matching player name
+            document = collection.find_one({"player_name": player_name})
+            newpayload = {
+                'ownerTeam': team_name, 'status': 'sold'
+            }
+    # Parse the ID from the _id field (assuming it's an ObjectId)
+            player_id = str(document["_id"])  # Convert ObjectId to string
+            # player_id =
+            response = client.put(f'/draftplayer/{player_id}',
+                                  json=newpayload,
+                                  query_string={"collectionName": collection_name,
+                                                "ownerCollectionName": owner_collection_name})
+            print(response)
+            # results.append(result)
+
+    return True
+
+
+@draftapi_bp.route('/bulk_drop_draft_player', methods=['POST'])
+def bulk_drop_draft_player():
+    """
+    Bulk API to drop multiple draft players based on a list of player names.
+
+    Returns:
+        JSON response containing results (success/failure) for each player drop attempt.
+    """
+
+    payload = request.get_json()
+    results = []
+
+    if not payload or not isinstance(payload, list):
+        # Handle invalid payload format
+        return ({"error": "Invalid payload. Please provide a list of player names."}), 400
+
+    for player_name in payload:
+        # Call the drop_draft_player function for each player name
+        response = drop_draft_player(player_name)
+        results.append(response)
+
+    return True
