@@ -38,16 +38,19 @@ def google_auth():
     if not email or not name:
         return jsonify({"error": "Email and name are required!"}), 400
 
-    # Generate user ID (for demo, using a static ID)
-     # Insert user into the MongoDB collection
-    user_data = {"email": email, "name": name}
     collection = db["users"]
-    result = collection.insert_one(user_data)
-    user_id = str(result.inserted_id)  # Get the generated user ID
+    existing_user = collection.find_one({"email": email})
+
+    if existing_user:
+        user_id = str(existing_user["_id"])
+    else:
+        user_data = {"email": email, "name": name}
+        result = collection.insert_one(user_data)
+        user_id = str(result.inserted_id)  # Get the generated user ID
 
     # Set token expiration to 3 months from the current time
-    expiry_time = (datetime.utcnow() +
-                   timedelta(days=90)).strftime("%H:%M %m/%d/%Y")
+    expiry_time = (datetime.utcnow() + timedelta(days=90)
+                   ).strftime("%H:%M %m/%d/%Y")
 
     # Create JWT payload
     payload = {
