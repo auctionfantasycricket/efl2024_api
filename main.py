@@ -8,6 +8,7 @@ from datetime import datetime, timezone, timedelta
 from config import app, db  # Import the app from the config module
 from draftapi import draftapi_bp  # Import the Blueprint
 import logging
+import jwt
 
 
 @app.route('/sample_api', methods=['GET'])
@@ -22,6 +23,44 @@ def get_sample_data():
     return jsonify(sample_data)
 
 # Define a new GET API endpoint that retrieves data from MongoDB based on the collectionName query parameter
+
+
+SECRET_KEY = "Godiswatching"
+
+
+@app.route('/google_auth', methods=['POST'])
+def google_auth():
+    # Parse JSON request data
+    data = request.get_json()
+    email = data.get('email')
+    name = data.get('name')
+
+    if not email or not name:
+        return jsonify({"error": "Email and name are required!"}), 400
+
+    # Generate user ID (for demo, using a static ID)
+     # Insert user into the MongoDB collection
+    user_data = {"email": email, "name": name}
+    collection = db["users"]
+    result = collection.insert_one(user_data)
+    user_id = str(result.inserted_id)  # Get the generated user ID
+
+    # Set token expiration to 3 months from the current time
+    expiry_time = (datetime.utcnow() +
+                   timedelta(days=90)).strftime("%H:%M %m/%d/%Y")
+
+    # Create JWT payload
+    payload = {
+        "userId": user_id,
+        "email": email,
+        "name": name,
+        "expiryTimeStamp": expiry_time
+    }
+
+    # Generate JWT token
+    token = jwt.encode(payload, SECRET_KEY, algorithm="HS256")
+
+    return jsonify({"token": token})
 
 
 @app.route('/get_data', methods=['GET'])

@@ -4,3 +4,4 @@ pymongo
 certifi
 Flask_Cors
 requests
+pyjwt
