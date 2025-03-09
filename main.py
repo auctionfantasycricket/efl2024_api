@@ -178,12 +178,12 @@ def update_owner_items(owner_items, updated_data):
     owner_items["maxBid"] = owner_items["currentPurse"] - \
         (20 * (15 - owner_items["totalCount"] - 1))
 
-    role = updated_data["player_role"]
-    if role == "Batter":
+    role = updated_data["player_role"].upper()
+    if role == "BATTER":
         owner_items["batCount"] += 1
-    elif role == "Bowler":
+    elif role == "BOWLER":
         owner_items["ballCount"] += 1
-    elif role == "All-Rounder":
+    elif role == "ALL-ROUNDER":
         owner_items["arCount"] += 1
 
     else:
