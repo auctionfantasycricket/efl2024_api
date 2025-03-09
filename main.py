@@ -147,22 +147,15 @@ def get_player():
 def update_player(_id):
     updated_data = request.get_json()
     filter = {"_id": ObjectId(str(_id))}
-    # Get the collectionName from the query parameter
-    collection_name = request.args.get(
-        'collectionName', 'efl_playersCentral_test')
 
-    collections = db[collection_name]
-    # Get the collectionName from the query parameter
+    collections = db["leagueplayers"]
 
     # Exclude _id from update_data to avoid updating it
     updated_data.pop('_id', None)
     result = collections.update_one(filter, {"$set": updated_data})
 
     if updated_data['status'] == "sold":
-        ownercollection = request.args.get(
-            'ownerCollectionName', 'efl_ownerTeams_test')
-
-        ownercollection = db[ownercollection]
+        ownercollection = db["teams"]
         update_owner_data(updated_data, ownercollection)
 
     return json_util.dumps(result.raw_result)
@@ -192,13 +185,11 @@ def update_owner_items(owner_items, updated_data):
         owner_items["ballCount"] += 1
     elif role == "All-Rounder":
         owner_items["arCount"] += 1
-    elif role == "WK Keeper - Batter":
-        owner_items["batCount"] += 1
-        owner_items["wkCount"] += 1
+
     else:
         print("Role not found")
 
-    if updated_data["country"] != "India":
+    if updated_data["isOverseas"]:
         owner_items["fCount"] += 1
 
     return owner_items
