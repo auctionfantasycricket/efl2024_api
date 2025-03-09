@@ -93,21 +93,19 @@ def get_data_from_mongodb():
 
 @app.route('/getspecificplayer', methods=["GET"])
 def get_a_player():
-    name = request.args.get(
-        'playerName', '')
+    name = request.args.get('playerName', '')
     name = urllib.parse.unquote(name)
+    league_id = request.args.get('leagueId', '')
 
     player_query = {
         "player_name": {"$regex": name, "$options": 'i'},
-        "status": "unsold"
+        "status": "unsold",
+        "leagueId": ObjectId(league_id)
     }
 
-    # modified collection to get player from draft central
-    collection_name = request.args.get(
-        'collectionName', 'eflDraft_playersCentral')
-
-    collection = db[collection_name]
+    collection = db["leagueplayers"]
     player_data = collection.find_one(player_query)
+
     if player_data:
         return json.loads(json_util.dumps(player_data))
     else:
@@ -117,13 +115,15 @@ def get_a_player():
 @app.route('/getplayer', methods=["GET"])
 def get_player():
     tiers = {1: [], 2: [], 3: [], 4: []}
-    # Get the collectionName from the query parameter
-    collection_name = request.args.get(
-        'collectionName', 'efl_playersCentral_test')
 
-    collection = db[collection_name]
+    # Get the leagueID from the query parameter
+    league_id = request.args.get('leagueId')
+    if not league_id:
+        return json.dumps({"message": "leagueID is required"}), 400
 
-    cursor = collection.find()
+    collection = db['leagueplayers']
+
+    cursor = collection.find({"leagueId": ObjectId(league_id)})
     for item in cursor:
         tier = item['tier']
         if tier in tiers and item['status'] == "unsold":
@@ -133,7 +133,8 @@ def get_player():
     for tier in range(1, 5):
         if tiers[tier] and any(player['status'] == 'unsold' for player in tiers[tier]):
             pick = random.choice(
-                [player for player in tiers[tier] if player['status'] == 'unsold'])
+                [player for player in tiers[tier] if player['status'] == 'unsold']
+            )
             break
 
     if pick is not None:
