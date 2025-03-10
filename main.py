@@ -68,23 +68,26 @@ def google_auth():
 
 @app.route('/get_data', methods=['GET'])
 def get_data_from_mongodb():
-    # Get the collectionName from the query parameter
+    # Get the collectionName and leagueId from query parameters
     collection_name = request.args.get('collectionName')
+    league_id = request.args.get('leagueId')
 
-    # Check if the collectionName is provided
+    # Check if collectionName is provided
     if not collection_name:
         return jsonify({'error': 'collectionName is required'}), 400
 
-    # Connect to the MongoDB and retrieve data from the specified collection
     try:
-
         collection = db[collection_name]
-        # You can customize the query as neededß
-        data_from_mongo = list(collection.find())
+        query = {}  # Default query
+
+        # If leagueId is provided, filter by leagueId
+        if league_id:
+            query['leagueId'] = ObjectId(league_id)
+
+        # Retrieve data from MongoDB based on the query
+        data_from_mongo = list(collection.find(query))
         serialized_data = json_util.dumps(data_from_mongo, default=str)
 
-        #serialized_data = json_util.dumps(data_from_mongo)
-        # Deserialize using json_util.loads
         return Response(serialized_data, mimetype="application/json")
     except Exception as e:
         logging.error(f"Error fetching data: {str(e)}")
