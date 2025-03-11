@@ -94,6 +94,70 @@ def get_data_from_mongodb():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/get_leagues_by_email', methods=['GET'])
+def get_leagues_by_email():
+    try:
+        email = request.args.get("email")
+
+        if not email:
+            return jsonify({'error': 'email is required'}), 400
+
+        # Find the user by email
+        user = db.users.find_one({"email": email}, {"joinedLeagues": 1})
+
+        if not user or "joinedLeagues" not in user:
+            return jsonify({"leagues": []}), 200
+
+        league_ids = [ObjectId(lid) for lid in user["joinedLeagues"]]
+
+        # Fetch league details from leagues collection
+        leagues = list(db.leagues.find({"_id": {"$in": league_ids}}))
+
+        # Convert ObjectId to string for JSON response
+        for league in leagues:
+            league["_id"] = str(league["_id"])
+
+        return jsonify({"leagues": leagues}), 200
+
+    except Exception as e:
+        logging.error(f"Error fetching leagues: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/join_league', methods=['POST'])
+def join_league():
+    try:
+        data = request.json
+        email = data.get("email")
+        league_id = data.get("leagueId")
+
+        if not email or not league_id:
+            return jsonify({'error': 'email and leagueId are required'}), 400
+
+        league_object_id = ObjectId(league_id)
+
+        # Find user by email
+        user = db.users.find_one({"email": email})
+        if not user:
+            return jsonify({'error': 'User not found'}), 404
+
+        # Check if the user has already joined the league
+        if "joinedLeagues" in user and league_id in user["joinedLeagues"]:
+            return jsonify({'message': 'User already in league'}), 200
+
+        # Add leagueId to the user's joinedLeagues array
+        db.users.update_one(
+            {"email": email},
+            {"$push": {"joinedLeagues": league_id}}
+        )
+
+        return jsonify({"message": "User joined league successfully"}), 200
+
+    except Exception as e:
+        logging.error(f"Error joining league: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/getspecificplayer', methods=["GET"])
 def get_a_player():
     name = request.args.get('playerName', '')
