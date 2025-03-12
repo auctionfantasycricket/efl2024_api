@@ -324,7 +324,7 @@ def join_league():
 
 @app.route('/getspecificplayer', methods=["GET"])
 def get_a_player():
-    name = request.args.get('playerName', '')
+    name = request.args.get('player_name', '')
     name = urllib.parse.unquote(name)
     league_id = request.args.get('leagueId', '')
 
