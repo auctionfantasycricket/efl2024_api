@@ -94,6 +94,93 @@ def get_data_from_mongodb():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/delete_league', methods=['DELETE'])
+def delete_league():
+    try:
+        # Get input data
+        data = request.json
+        league_id = data.get("leagueId")
+
+        if not league_id:
+            return jsonify({'error': 'leagueId is required'}), 400
+
+        league_object_id = ObjectId(league_id)
+
+        # Step 1: Delete all league players with this leagueId
+        db.leagueplayers.delete_many({"leagueId": league_object_id})
+
+        # Step 2: Remove leagueId from joinedLeagues array in users collection
+        db.users.update_many(
+            {"joinedLeagues": str(league_id)},
+            {"$pull": {"joinedLeagues": str(league_id)}}
+        )
+
+        # Step 3: Delete the league from leagues collection
+        result = db.leagues.delete_one({"_id": league_object_id})
+
+        if result.deleted_count == 0:
+            return jsonify({'error': 'League not found'}), 404
+
+        return jsonify({"message": "League deleted successfully"}), 200
+
+    except Exception as e:
+        logging.error(f"Error deleting league: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/create_league', methods=['POST'])
+def create_league():
+    try:
+        # Get input data
+        data = request.json
+        useremail = data.get("useremail")
+        league_name = data.get("league_name")
+        league_type = data.get("league_type")
+
+        if not useremail or not league_name or not league_type:
+            return jsonify({'error': 'useremail, league_name, and league_type are required'}), 400
+
+        # Step 1: Create new league entry
+        league_data = {
+            "league_name": league_name,
+            "league_type": league_type,
+            "admins": [useremail]
+        }
+        new_league = db.leagues.insert_one(league_data)
+        league_id = new_league.inserted_id
+
+        # Step 2: Copy players to leagueplayers collection
+        players = db.players.find({})
+        for player in players:
+            player_copy = {
+                "player_name": player["player_name"],
+                "player_role": player["player_role"],
+                "ipl_team_name": player["ipl_team_name"],
+                "isOverseas": player["isOverseas"],
+                "ipl_salary": player["ipl_salary"],
+                "rank": player["rank"],
+                "tier": player["tier"],
+                "afc_base_salary": player["afc_base_salary"],
+                "status": "unsold",
+                "leagueId": league_id  # Reference the newly created league
+            }
+            db.leagueplayers.insert_one(player_copy)
+
+        # Step 3: Add leagueId to user's joinedLeagues array
+        db.users.update_one(
+            {"email": useremail},
+            # Ensures no duplicates
+            {"$addToSet": {"joinedLeagues": str(league_id)}},
+            upsert=True  # Creates user entry if not found
+        )
+
+        return jsonify({"message": "League created successfully", "leagueId": str(league_id)}), 201
+
+    except Exception as e:
+        logging.error(f"Error creating league: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/get_leagues_by_email', methods=['GET'])
 def get_leagues_by_email():
     try:
