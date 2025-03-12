@@ -108,6 +108,7 @@ def delete_league():
 
         # Step 1: Delete all league players with this leagueId
         db.leagueplayers.delete_many({"leagueId": league_object_id})
+        db.teams.delete_many({"leagueId": league_object_id})
 
         # Step 2: Remove leagueId from joinedLeagues array in users collection
         db.users.update_many(
@@ -125,6 +126,82 @@ def delete_league():
 
     except Exception as e:
         logging.error(f"Error deleting league: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/add_team', methods=['POST'])
+def add_team():
+    try:
+        data = request.json
+        team_name = data.get("teamName")
+        league_id = data.get("leagueId")
+
+        if not team_name or not league_id:
+            return jsonify({'error': 'teamName and leagueId are required'}), 400
+
+        team_data = {
+            "teamName": team_name,
+            "batCount": 0,
+            "ballCount": 0,
+            "fCount": 0,
+            "totalCount": 0,
+            "currentPurse": 7000,
+            "maxBid": 6700,
+            "arCount": 0,
+            "leagueId": ObjectId(league_id)
+        }
+
+        result = db.teams.insert_one(team_data)
+        return jsonify({"message": "Team added successfully", "teamId": str(result.inserted_id)}), 201
+
+    except Exception as e:
+        logging.error(f"Error adding team: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/delete_team', methods=['DELETE'])
+def delete_team():
+    try:
+        data = request.json
+        team_id = data.get("teamId")
+
+        if not team_id:
+            return jsonify({'error': 'teamId is required'}), 400
+
+        result = db.teams.delete_one({"_id": ObjectId(team_id)})
+
+        if result.deleted_count == 0:
+            return jsonify({'error': 'Team not found'}), 404
+
+        return jsonify({"message": "Team deleted successfully"}), 200
+
+    except Exception as e:
+        logging.error(f"Error deleting team: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/edit_team', methods=['PUT'])
+def edit_team():
+    try:
+        data = request.json
+        team_id = data.get("teamId")
+        new_team_name = data.get("teamName")
+
+        if not team_id or not new_team_name:
+            return jsonify({'error': 'teamId and teamName are required'}), 400
+
+        result = db.teams.update_one(
+            {"_id": ObjectId(team_id)},
+            {"$set": {"teamName": new_team_name}}
+        )
+
+        if result.matched_count == 0:
+            return jsonify({'error': 'Team not found'}), 404
+
+        return jsonify({"message": "Team name updated successfully"}), 200
+
+    except Exception as e:
+        logging.error(f"Error editing team: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 
