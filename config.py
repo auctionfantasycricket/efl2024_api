@@ -11,6 +11,7 @@ mongo_client = MongoClient(
     tlsCAFile=ca
 )
 db = mongo_client['afc2025']
+old_db = mongo_client['afc2024']
 try:
     print("Replica Set Name:", mongo_client.admin.command(
         "ismaster")["setName"])

@@ -5,7 +5,7 @@ import random
 import urllib
 import requests
 from datetime import datetime, timezone, timedelta
-from config import app, db  # Import the app from the config module
+from config import app, db, old_db  # Import the app from the config module
 from draftapi import draftapi_bp  # Import the Blueprint
 import logging
 import jwt
@@ -77,7 +77,10 @@ def get_data_from_mongodb():
         return jsonify({'error': 'collectionName is required'}), 400
 
     try:
-        collection = db[collection_name]
+        if collection_name.startswith('efl_') or collection_name == "global_data":
+            collection = old_db[collection_name]
+        else:
+            collection = db[collection_name]
         query = {}  # Default query
 
         # If leagueId is provided, filter by leagueId
