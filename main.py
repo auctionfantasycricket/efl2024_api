@@ -417,7 +417,7 @@ def update_owner_items(owner_items, updated_data):
         owner_items["batCount"] += 1
     elif role == "BOWLER":
         owner_items["ballCount"] += 1
-    elif role == "ALL-ROUNDER":
+    elif role == "ALL_ROUNDER":
         owner_items["arCount"] += 1
 
     else:
