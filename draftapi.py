@@ -476,7 +476,7 @@ def draftplayer(_id):
     filter = {"_id": ObjectId(str(_id))}
 
     # Get collection names and leagueID from query parameters
-    collection_name = request.args.get('collectionName', 'players')
+    collection_name = request.args.get('collectionName', 'leagueplayers')
     owner_collection_name = request.args.get('ownerCollectionName', 'teams')
     league_id = request.args.get('leagueID')
 
