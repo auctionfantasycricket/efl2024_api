@@ -137,6 +137,7 @@ def add_team():
         data = request.json
         team_name = data.get("teamName")
         league_id = data.get("leagueId")
+        league_type = data.get("leagueType")
 
         if not team_name or not league_id:
             return jsonify({'error': 'teamName and leagueId are required'}), 400
@@ -154,7 +155,8 @@ def add_team():
         }
 
         # Add an array with 8 empty strings
-        team_data["draftSequence"] = [""] * 8
+        if league_type and league_type.toupper() == "DRAFT":
+            team_data["draftSequence"] = [""] * 8
         result = db.teams.insert_one(team_data)
         return jsonify({"message": "Team added successfully", "teamId": str(result.inserted_id)}), 201
 
