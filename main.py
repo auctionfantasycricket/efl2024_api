@@ -347,7 +347,8 @@ def get_a_player():
     if player_data:
         return json.loads(json_util.dumps(player_data))
     else:
-        return json.loads(json_util.dumps("player not found"))
+        # Return 404 status code
+        return jsonify({"error": "Player not found"}), 404
 
 
 @app.route('/getplayer', methods=["GET"])
