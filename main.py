@@ -153,6 +153,8 @@ def add_team():
             "leagueId": ObjectId(league_id)
         }
 
+        # Add an array with 8 empty strings
+        team_data["draftSequence"] = [""] * 8
         result = db.teams.insert_one(team_data)
         return jsonify({"message": "Team added successfully", "teamId": str(result.inserted_id)}), 201
 
@@ -225,11 +227,6 @@ def create_league():
             "league_type": league_type,
             "admins": [useremail]
         }
-
-        # Add draftSequence array with 8 empty strings if the league type is 'draft'
-        if league_type.strip().lower() == "draft":
-            # Add an array with 8 empty strings
-            league_data["draftSequence"] = [""] * 8
 
         new_league = db.leagues.insert_one(league_data)
         league_id = new_league.inserted_id
