@@ -101,8 +101,7 @@ def get_data_from_mongodb():
 def delete_league():
     try:
         # Get input data
-        data = request.json
-        league_id = data.get("leagueId")
+        league_id = request.args.get("leagueId")
 
         if not league_id:
             return jsonify({'error': 'leagueId is required'}), 400
@@ -226,6 +225,12 @@ def create_league():
             "league_type": league_type,
             "admins": [useremail]
         }
+
+        # Add draftSequence array with 8 empty strings if the league type is 'draft'
+        if league_type.strip().lower() == "draft":
+            # Add an array with 8 empty strings
+            league_data["draftSequence"] = [""] * 8
+
         new_league = db.leagues.insert_one(league_data)
         league_id = new_league.inserted_id
 
