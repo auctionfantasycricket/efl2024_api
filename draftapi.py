@@ -11,7 +11,7 @@ draftapi_bp = Blueprint('draftapi', __name__)
 
 def update_owner_data(updated_data, ownercollection, player_data, league_id):
     owner_team = updated_data['ownerTeam']
-    myquery = {"teamName": owner_team, "leagueID": ObjectId(league_id)}
+    myquery = {"teamName": owner_team, "leagueId": ObjectId(str(league_id))}
     owners_data = ownercollection.find(myquery)
 
     for owner_items in owners_data:
@@ -473,12 +473,13 @@ def update_current_waiver_api(email):
 @draftapi_bp.route('/draftplayer/<_id>', methods=['PUT'])
 def draftplayer(_id):
     updated_data = request.get_json()
+    print(_id)
     filter = {"_id": ObjectId(str(_id))}
 
     # Get collection names and leagueID from query parameters
     collection_name = request.args.get('collectionName', 'leagueplayers')
     owner_collection_name = request.args.get('ownerCollectionName', 'teams')
-    league_id = request.args.get('leagueID')
+    league_id = updated_data.get('leagueID')
 
     playerCollection = db[collection_name]
     player_data = playerCollection.find_one(filter)
