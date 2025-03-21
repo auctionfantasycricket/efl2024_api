@@ -28,6 +28,51 @@ def get_sample_data():
 SECRET_KEY = "Godiswatching"
 
 
+@app.route("/teams/my_team", methods=["GET"])
+def get_my_team():
+    user_id = request.args.get("userId")
+    league_id = request.args.get("leagueId")
+
+    if not user_id or not league_id:
+        return jsonify({"error": "Missing required parameters"}), 400
+
+    try:
+        user_id = ObjectId(user_id)  # Convert to ObjectId
+        league_id = ObjectId(league_id)
+    except:
+        return jsonify({"error": "Invalid ObjectId format"}), 400
+
+    # Find user's team in the given league
+    user_team = db.userteams.find_one(
+        {"userId": user_id, "leagueId": league_id})
+
+    if not user_team:
+        return jsonify({"error": "User is not part of any team in this league"}), 404
+
+    team_id = user_team["teamId"]
+
+    # Fetch team details
+    team = db.teams.find_one({"_id": team_id}, {"teamName": 1})
+
+    if not team:
+        return jsonify({"error": "Team not found"}), 404
+
+    # Fetch all users in this team
+    team_members = db.userteams.find({"teamId": team_id}, {"userId": 1})
+
+    # Get names of all team members
+    member_ids = [member["userId"] for member in team_members]
+    members = db.users.find({"_id": {"$in": member_ids}}, {"name": 1})
+
+    member_names = [member["name"] for member in members]
+
+    return jsonify({
+        "teamId": str(team["_id"]),
+        "teamName": team["teamName"],
+        "members": member_names
+    }), 200
+
+
 @app.route('/google_auth', methods=['POST'])
 def google_auth():
     # Parse JSON request data
