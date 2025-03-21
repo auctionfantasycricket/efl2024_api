@@ -28,6 +28,44 @@ def get_sample_data():
 SECRET_KEY = "Godiswatching"
 
 
+@app.route("/teams/join", methods=["POST"])
+def join_team():
+    data = request.json
+
+    # Extract required fields
+    user_id = data.get("userId")
+    league_id = data.get("leagueId")
+    team_id = data.get("teamId")
+
+    if not user_id or not league_id or not team_id:
+        return jsonify({"error": "Missing required parameters"}), 400
+
+    try:
+        user_id = ObjectId(user_id)
+        league_id = ObjectId(league_id)
+        team_id = ObjectId(team_id)
+    except:
+        return jsonify({"error": "Invalid ObjectId format"}), 400
+
+    # Check if user already joined a team in this league
+    existing_entry = db.userteams.find_one(
+        {"userId": user_id, "leagueId": league_id})
+
+    if existing_entry:
+        return jsonify({"error": "User is already in a team for this league"}), 400
+
+    # Insert new entry in user_teams collection
+    new_entry = {
+        "userId": user_id,
+        "leagueId": league_id,
+        "teamId": team_id
+    }
+
+    db.userteams.insert_one(new_entry)
+
+    return jsonify({"message": "User successfully joined the team"}), 201
+
+
 @app.route("/teams/my_team", methods=["GET"])
 def get_my_team():
     user_id = request.args.get("userId")
