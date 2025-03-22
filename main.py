@@ -5,7 +5,7 @@ import random
 import urllib
 import requests
 from datetime import datetime, timezone, timedelta
-from config import app, db, old_db  # Import the app from the config module
+from config import app, db  # Import the app from the config module
 from draftapi import draftapi_bp  # Import the Blueprint
 from liveupdates import liveupdates_bp
 import logging
