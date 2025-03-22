@@ -7,6 +7,7 @@ import requests
 from datetime import datetime, timezone, timedelta
 from config import app, db, old_db  # Import the app from the config module
 from draftapi import draftapi_bp  # Import the Blueprint
+from liveupdates import liveupdates_bp
 import logging
 import jwt
 
@@ -160,10 +161,8 @@ def get_data_from_mongodb():
         return jsonify({'error': 'collectionName is required'}), 400
 
     try:
-        if collection_name.startswith('efl_') or collection_name == "global_data":
-            collection = old_db[collection_name]
-        else:
-            collection = db[collection_name]
+
+        collection = db[collection_name]
         query = {}  # Default query
 
         # If leagueId is provided, filter by leagueId
@@ -1329,6 +1328,7 @@ def eod_update():
 
 
 app.register_blueprint(draftapi_bp)
+app.register_blueprint(liveupdates_bp)
 
 if __name__ == '__main__':
     # Run the Flask app on http://127.0.0.1:5000/
