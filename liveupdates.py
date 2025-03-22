@@ -98,7 +98,7 @@ def update_owner_points_and_rank():
 
             # Get points for this owner in the current league
             owner_points = owners_points.get((owner_name, league_id), 0)
-            owner_total_points = owner.get('totalPoints', 0) + owner_points
+            owner_total_points = owner.get('yesterdayPoints', 0) + owner_points
 
             print(owner_name, owner_points, owner_total_points)
 
@@ -167,4 +167,4 @@ def main(db):
 # Assuming `db` is your MongoDB database connection
 main(db)
 '''
-update_owner_points_and_rank()
+# update_owner_points_and_rank()
