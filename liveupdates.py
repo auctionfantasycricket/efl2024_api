@@ -1,11 +1,74 @@
 import requests
-from pymongo import UpdateOne, UpdateMany
-from flask import Blueprint, request
-from config import db, app
+from pymongo import UpdateOne, UpdateMany, DESCENDING
+from flask import Blueprint
+from config import db
 from datetime import datetime, timezone, timedelta
 
 
 liveupdates_bp = Blueprint('liveupdates', __name__)
+
+
+@liveupdates_bp.route('/eod_update_rank_mycric', methods=['POST'])
+def eod_update_rank_mycric():
+    ownerCollection = db.teams
+
+    # Get all unique leagueIds
+    league_ids = ownerCollection.distinct("leagueId")
+
+    bulk_updates = []  # List to store bulk update operations
+
+    for league_id in league_ids:
+        # Fetch teams in this league, sorted by totalPoints (descending)
+        documents = list(ownerCollection.find(
+            {"leagueId": league_id}).sort("totalPoints", DESCENDING))
+
+        rank = 1  # Initialize rank counter for this league
+
+        for document in documents:
+            document_id = document["_id"]
+            standings = document.get("standings", [])
+            standings.append(rank)
+            print(document['teamName'], rank, standings)
+
+            # Add update operation to bulk list
+            bulk_updates.append(
+                UpdateOne(
+                    {"_id": document_id},
+                    {"$set": {"rank": rank}, "$push": {"standings": rank}}
+                )
+            )
+
+            rank += 1
+
+    # Execute bulk updates if there are any
+    if bulk_updates:
+        ownerCollection.bulk_write(bulk_updates)
+    eod_update_score_yesterdayPoints()
+    update_timestamps('rankingsUpdatedAt')
+    return "OK", 200
+
+
+@liveupdates_bp.route('/eod_update_yesterdayPoints', methods=['POST'])
+def eod_update_score_yesterdayPoints():
+    ownerCollection = db.teams
+    owners = ownerCollection.find()
+
+    bulk_updates = []
+    for owner in owners:
+        total_points = owner.get('totalPoints', 0)
+        print('yest', owner['teamName'], total_points)
+        bulk_updates.append(
+            UpdateOne(
+                {"_id": owner["_id"]},
+                {"$set": {"yesterdayPoints": total_points}}
+            )
+        )
+
+    # Perform bulk update if there are updates to apply
+    if bulk_updates:
+        ownerCollection.bulk_write(bulk_updates)
+
+    return 'OK', 200
 
 
 @liveupdates_bp.route('/update_score_from_mycric', methods=['POST'])
@@ -15,18 +78,7 @@ def update_score_from_mycric():
     update_player_points_in_db(gameday_data)
     update_owner_points_and_rank()
     update_timestamps('pointsUpdatedAt')
-    '''
-    collection_name = request.args.get(
-        'collectionName', 'eflDraft_playersCentral')
-    owner_collection_name = request.args.get(
-        'ownerCollectionName', 'eflDraft_ownerTeams')
-    collection = db[collection_name]
-    owner_collection = db[owner_collection_name]
-    # Reset player points before processing matches
-    reset_player_points(collection)
-    process_matches(responses, collection, owner_collection)
-    update_timestamp_points("pointsUpdatedAt")
-    '''
+
     return 'OK', 200
 
 
@@ -147,24 +199,3 @@ def update_player_points_in_db(gameday_data):
             f"Bulk Update: Matched {result.matched_count} documents and modified {result.modified_count} documents.")
     else:
         print("No bulk operations to perform.")
-
-
-# Main function to execute the updates
-
-
-'''
-def main(db):
-    """Main function to execute the process."""
-    try:
-        gameday_data = fetch_api_data()  # Fetch API data
-        # Update players in DB using bulk operations
-        update_player_points_in_db(db, gameday_data)
-    except Exception as e:
-        print(f"Error: {e}")
-
-
-# Example usage:
-# Assuming `db` is your MongoDB database connection
-main(db)
-'''
-# update_owner_points_and_rank()
