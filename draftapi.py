@@ -74,6 +74,27 @@ def fetch_team_owners_by_email(email, owner_collection_name):
     return list(team_owners.find({'emails': email}))
 
 
+@draftapi_bp.route('/getTeamById/<teamId>', methods=['GET'])
+def get_team_by_id(teamId):
+    try:
+        # Look up the team by teamId
+        team = db.teams.find_one({'_id': ObjectId(teamId)}, {
+                                 'teamName': 1, 'currentWaiver': 1})
+
+        if not team:
+            return json_util.dumps({'error': 'Team not found'}), 404
+
+        # Return teamName and currentWaiver
+        response = {
+            'teamName': team.get('teamName'),
+            'currentWaiver': team.get('currentWaiver')
+        }
+        return json_util.dumps(response), 200
+
+    except Exception as e:
+        return json_util.dumps({'error': str(e)}), 500
+
+
 def get_team_owner_response(team_owners_found):
     if not team_owners_found:
         return {'error': 'No team owners found for this email'}, 404
@@ -105,15 +126,6 @@ def get_team_owner_by_email(email):
 @draftapi_bp.route('/getTeamOwnerByEmail/<email>', methods=['GET'])
 def get_team_owner(email):
     return get_team_owner_by_email(email)
-
-
-def update_current_waiver(email, current_waiver, owner_collection_name):
-    team_owners = db[owner_collection_name]
-    result = team_owners.update_one(
-        {'emails': email},
-        {'$set': {'currentWaiver': current_waiver}}
-    )
-    return result.modified_count > 0
 
 
 def validate_waiver_data(current_waiver):
@@ -431,43 +443,45 @@ def process_waivers():
     return docs_dict, 200
 
 
-@draftapi_bp.route('/updateCurrentWaiver/<email>', methods=['PUT'])
-def update_current_waiver_api(email):
+@draftapi_bp.route('/updateCurrentWaiver/<userId>/<teamId>', methods=['PUT'])
+def update_current_waiver_api(userId, teamId):
     try:
-        owner_collection_name = request.args.get(
-            'ownerCollectionName', 'eflDraft_ownerTeams')
         current_waiver = request.json.get('currentWaiver')
 
         # Validate currentWaiver data
         is_valid, validation_message = validate_waiver_data(current_waiver)
         if not is_valid:
-            response = json_util.dumps({'error': validation_message})
-            return response, 400
+            return json_util.dumps({'error': validation_message}), 400
 
-        # Add lastUpdatedBy and lastUpdatedTime
-        current_waiver['lastUpdatedBy'] = email
-        # Get the current UTC time
+        # Fetch user name from users collection
+        user = db.users.find_one({'_id': ObjectId(userId)}, {'name': 1})
+        if not user:
+            return json_util.dumps({'error': 'User not found'}), 404
+        user_name = user['name']
+
+        # Get current UTC time and convert to PST (UTC-7)
         now_utc = datetime.utcnow()
-
-        # Calculate the PST time (UTC-8)
         pst_offset = timedelta(hours=-7)
         now_pst = now_utc + pst_offset
 
-        # Format the time as required
+        # Format the time
+        current_waiver['lastUpdatedBy'] = user_name
         current_waiver['lastUpdatedTime'] = now_pst.strftime(
             '%dth %B at %I:%M:%S %p')
 
-        if update_current_waiver(email, current_waiver, owner_collection_name):
-            response = json_util.dumps(
-                {'message': 'Current waiver updated successfully'})
-            return response, 200
+        # Update the team object in db.teams
+        result = db.teams.update_one(
+            {'_id': ObjectId(teamId)},
+            {'$set': {'currentWaiver': current_waiver}}
+        )
+
+        if result.modified_count > 0:
+            return json_util.dumps({'message': 'Current waiver updated successfully'}), 200
         else:
-            response = json_util.dumps(
-                {'error': 'No team owner found for the provided email'})
-            return response, 404
+            return json_util.dumps({'error': 'Team not found or no update needed'}), 404
+
     except Exception as e:
-        response = json_util.dumps({'error': str(e)})
-        return response, 500
+        return json_util.dumps({'error': str(e)}), 500
 
 
 @draftapi_bp.route('/draftplayer/<_id>', methods=['PUT'])
