@@ -166,11 +166,15 @@ def get_data_from_mongodb():
         query = {}  # Default query
 
         # If leagueId is provided, filter by leagueId
-        if league_id:
+        # If collectionName is "leagues", filter by _id
+        if collection_name == "leagues" and league_id:
+            query['_id'] = ObjectId(league_id)
+        elif league_id:
             query['leagueId'] = ObjectId(league_id)
-
+        print(query)
         # Retrieve data from MongoDB based on the query
         data_from_mongo = list(collection.find(query))
+        print(data_from_mongo)
         serialized_data = json_util.dumps(data_from_mongo, default=str)
 
         return Response(serialized_data, mimetype="application/json")
