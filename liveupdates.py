@@ -3,6 +3,8 @@ from pymongo import UpdateOne, UpdateMany, DESCENDING
 from flask import Blueprint
 from config import db
 from datetime import datetime, timezone, timedelta
+from bson import ObjectId
+import re
 
 
 liveupdates_bp = Blueprint('liveupdates', __name__)
@@ -45,6 +47,9 @@ def eod_update_rank_mycric():
         ownerCollection.bulk_write(bulk_updates)
     eod_update_score_yesterdayPoints()
     update_timestamps('rankingsUpdatedAt')
+    increment_match_id()
+    update_unsold_player_points_in_db()
+    backup()
     return "OK", 200
 
 
@@ -80,6 +85,18 @@ def update_score_from_mycric():
     update_timestamps('pointsUpdatedAt')
 
     return 'OK', 200
+
+
+def increment_match_id():
+
+    global_collection = db["global_data"]
+
+    last_match_id = get_global_data("last-match-id")
+    new_match_id = last_match_id + 1
+
+    global_collection.update_one(
+        {}, {"$set": {"last-match-id": new_match_id}}, upsert=True)
+    print("updated match id to " + str(new_match_id))
 
 
 def get_global_data(attribute_name):
@@ -199,3 +216,65 @@ def update_player_points_in_db(gameday_data):
             f"Bulk Update: Matched {result.matched_count} documents and modified {result.modified_count} documents.")
     else:
         print("No bulk operations to perform.")
+
+
+def update_unsold_player_points_in_db():
+    """Collect update operations and execute them in bulk."""
+    matchid = get_global_data('last-match-id')
+    gameday_data = fetch_api_data(matchid)
+    api_players = gameday_data["Data"]["Value"]["Players"]
+    bulk_operations = []
+
+    for player in api_players:
+        player_name = player["Name"]
+        today_points = player.get("GamedayPoints", 0)
+        total_points = player.get("OverallPoints", 0)
+        print(player_name, today_points, total_points)
+
+        # Create a bulk update operation for each player
+        bulk_operations.append(UpdateMany(
+            {
+                "player_name": player_name,
+                "status": {"$ne": "sold"},
+                # League ID should be either "A" or "B"
+                "leagueId": {"$in": [ObjectId('67d4dd408786c3e1b4ee172a'), ObjectId('67da30b26a17f44a19c2241a')]}
+            },  # Match by player name
+            # Set or update points
+            {"$set": {"todayPoints":
+                      today_points, "points": total_points}},
+            upsert=False  # Only update existing documents, don't insert new ones
+        ))
+
+    if bulk_operations:
+        result = db.leagueplayers.bulk_write(bulk_operations)
+        print(
+            f"Bulk Update: Matched {result.matched_count} documents and modified {result.modified_count} documents.")
+    else:
+        print("No bulk operations to perform.")
+
+
+def backup():
+    # Get current date in YYYYMMDD format
+    today_date = datetime.now().strftime("%Y%m%d")
+
+    # Identify and remove all old backup collections
+    for collection_name in db.list_collection_names():
+        # Matches collections ending with _YYYYMMDD
+        if re.search(r'_\d{8}$', collection_name):
+            db[collection_name].drop()
+            print(f"Removed old backup: {collection_name}")
+
+    # Create fresh backups only for original collections (excluding backups)
+    for collection_name in db.list_collection_names():
+        # Skip already backed-up collections
+        if not re.search(r'_\d{8}$', collection_name):
+            new_collection_name = f"{collection_name}_{today_date}"
+            db[collection_name].aggregate([{"$out": new_collection_name}])
+            print(
+                f"Copied collection {collection_name} to {new_collection_name}")
+
+    print("Old backups removed, and new backup created successfully.")
+
+
+eod_update_rank_mycric()
+# update_unsold_player_points_in_db()
