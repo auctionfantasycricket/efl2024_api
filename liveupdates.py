@@ -276,5 +276,5 @@ def backup():
     print("Old backups removed, and new backup created successfully.")
 
 
-eod_update_rank_mycric()
+# eod_update_rank_mycric()
 # update_unsold_player_points_in_db()
