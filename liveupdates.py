@@ -189,8 +189,21 @@ def update_owner_points_and_rank():
 
 def update_player_points_in_db(gameday_data):
     """Collect update operations and execute them in bulk."""
+    draft_league_id = ObjectId('67da30b26a17f44a19c2241a')
     api_players = gameday_data["Data"]["Value"]["Players"]
     bulk_operations = []
+    special_ops = []
+
+    transfer_points_map = {}
+
+    special_league_players = db.leagueplayers.find(
+        {"leagueId": draft_league_id, "status": "sold"},
+        {"player_name": 1, "transferredPoints": 1}
+    )
+
+    for player in special_league_players:
+        transfer_points_map[player["player_name"]
+                            ] = player.get("transferredPoints", 0)
 
     for player in api_players:
         player_name = player["Name"]
@@ -202,11 +215,24 @@ def update_player_points_in_db(gameday_data):
         bulk_operations.append(UpdateMany(
             {
                 "player_name": player_name,
-                "status": "sold"  # Only update players with status "sold"
+                "status": "sold",  # Only update players with status "sold"
+                "leagueId": {"$ne": draft_league_id}  # Exclude special league
             },  # Match by player name
             # Set or update points
             {"$set": {"todayPoints":
                       today_points, "points": total_points}},
+            upsert=False  # Only update existing documents, don't insert new ones
+        ))
+
+        special_ops.append(UpdateOne(
+            {
+                "player_name": player_name,
+                "status": "sold",  # Only update players with status "sold"
+                "leagueId": draft_league_id  # Exclude special league
+            },  # Match by player name
+            # Set or update points
+            {"$set": {"todayPoints":
+                      today_points, "points": total_points-transfer_points_map.get(player_name, 0)}},
             upsert=False  # Only update existing documents, don't insert new ones
         ))
 
@@ -216,6 +242,14 @@ def update_player_points_in_db(gameday_data):
             f"Bulk Update: Matched {result.matched_count} documents and modified {result.modified_count} documents.")
     else:
         print("No bulk operations to perform.")
+
+    if special_ops:
+        result = db.leagueplayers.bulk_write(special_ops)
+        print(
+            f"Special Update: Matched {result.matched_count} documents and modified {result.modified_count} documents.")
+    else:
+        print("No special operations to perform.")
+    # First, fetch all relevant players with their transferPoints from the special league
 
 
 def update_unsold_player_points_in_db():
