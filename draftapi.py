@@ -443,9 +443,61 @@ def process_waivers():
     return docs_dict, 200
 
 
+def is_before_deadline(deadline_str):
+    # Remove the timezone part and parse the time
+    datetime_part = deadline_str.split(' (')[0]  # "April 6, 2025 at 1:00PM"
+    deadline_naive = datetime.strptime(datetime_part, "%B %d, %Y at %I:%M%p")
+
+    # PST is UTC-8, but in April, Daylight Saving Time (PDT = UTC-7) applies
+    # So we manually adjust for PDT (UTC-7)
+    deadline_utc = deadline_naive + timedelta(hours=7)
+
+    # Get current UTC time
+    now_utc = datetime.utcnow()
+
+    return now_utc < deadline_utc
+
+
+def check_deadline_for_team(team_id, auction_league_id, draft_league_id):
+    # Fetch the team
+    team = db.teams.find_one({'_id': ObjectId(team_id)}, {'leagueId': 1})
+    if not team or 'leagueId' not in team:
+        return False, 'Team or leagueId not found'
+
+    league_id = team['leagueId']
+
+    # Determine deadline field based on league type
+    if league_id == auction_league_id:
+        deadline_field = 'nextAuctionDeadline'
+    elif league_id == draft_league_id:
+        deadline_field = 'nextDraftDeadline'
+    else:
+        return False, 'Unknown league type'
+
+    # Fetch deadline from global_data
+    global_data = db.global_data.find_one({}, {deadline_field: 1})
+    if not global_data or deadline_field not in global_data:
+        return False, f'{deadline_field} not set in global data'
+
+    deadline_str = global_data[deadline_field]
+
+    # Check the deadline
+    if not is_before_deadline(deadline_str):
+        return False, f'Cannot update waiver after the {deadline_field}'
+
+    return True, None
+
+
 @draftapi_bp.route('/updateCurrentWaiver/<userId>/<teamId>', methods=['PUT'])
 def update_current_waiver_api(userId, teamId):
     try:
+        auctionLeagueId = ObjectId('67d4dd408786c3e1b4ee172a')
+        draftLeagueId = ObjectId('67da30b26a17f44a19c2241a')
+        is_allowed, error_message = check_deadline_for_team(
+            teamId, auctionLeagueId, draftLeagueId)
+        if not is_allowed:
+            return json_util.dumps({'error': error_message}), 400
+
         current_waiver = request.json.get('currentWaiver')
 
         # Validate currentWaiver data
