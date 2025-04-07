@@ -200,12 +200,12 @@ def update_player_points_in_db(gameday_data):
     special_league_players = db.leagueplayers.find(
         {"leagueId": {"$in": [draft_league_id,
                               auction_league_id]}, "status": "sold"},
-        {"player_name": 1, "transferredPoints": 1}
+        {"player_name": 1, "transferredPoints": 1, "leagueId": 1}
     )
 
     for player in special_league_players:
-        transfer_points_map[player["player_name"]
-                            ] = player.get("transferredPoints", 0)
+        transfer_points_map[(player["leagueId"], player["player_name"])] = player.get(
+            "transferredPoints", 0)
 
     for player in api_players:
         player_name = player["Name"]
@@ -227,18 +227,21 @@ def update_player_points_in_db(gameday_data):
             upsert=False  # Only update existing documents, don't insert new ones
         ))
 
-        special_ops.append(UpdateOne(
-            {
-                "player_name": player_name,
-                "status": "sold",  # Only update players with status "sold"
-                "leagueId": {"$in": [draft_league_id,
-                                     auction_league_id]}
-            },  # Match by player name
-            # Set or update points
-            {"$set": {"todayPoints":
-                      today_points, "points": total_points-transfer_points_map.get(player_name, 0)}},
-            upsert=False  # Only update existing documents, don't insert new ones
-        ))
+        for league_id in [draft_league_id, auction_league_id]:
+            special_ops.append(UpdateOne(
+                {
+                    "player_name": player_name,
+                    "status": "sold",
+                    "leagueId": league_id
+                },
+                {
+                    "$set": {
+                        "todayPoints": today_points,
+                        "points": total_points - transfer_points_map.get((league_id, player_name), 0)
+                    }
+                },
+                upsert=False
+            ))
 
     if bulk_operations:
         result = db.leagueplayers.bulk_write(bulk_operations)
