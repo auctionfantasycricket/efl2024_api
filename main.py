@@ -495,14 +495,15 @@ def update_player(_id):
 
     if updated_data['status'] == "sold":
         ownercollection = db["teams"]
-        update_owner_data(updated_data, ownercollection)
+        update_owner_data(updated_data, ownercollection,
+                          player_data.get('leagueId'))
 
     return json_util.dumps(result.raw_result)
 
 
-def update_owner_data(updated_data, ownercollection):
+def update_owner_data(updated_data, ownercollection, leagueId):
     owner_team = updated_data['ownerTeam']
-    myquery = {"teamName": owner_team}
+    myquery = {"teamName": owner_team, "leagueId": leagueId}
     owners_data = ownercollection.find(myquery)
 
     for owner_items in owners_data:
