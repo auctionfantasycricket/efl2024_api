@@ -190,6 +190,7 @@ def update_owner_points_and_rank():
 def update_player_points_in_db(gameday_data):
     """Collect update operations and execute them in bulk."""
     draft_league_id = ObjectId('67da30b26a17f44a19c2241a')
+    auction_league_id = ObjectId('67d4dd408786c3e1b4ee172a')
     api_players = gameday_data["Data"]["Value"]["Players"]
     bulk_operations = []
     special_ops = []
@@ -197,7 +198,8 @@ def update_player_points_in_db(gameday_data):
     transfer_points_map = {}
 
     special_league_players = db.leagueplayers.find(
-        {"leagueId": draft_league_id, "status": "sold"},
+        {"leagueId": {"$in": [draft_league_id,
+                              auction_league_id]}, "status": "sold"},
         {"player_name": 1, "transferredPoints": 1}
     )
 

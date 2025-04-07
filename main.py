@@ -424,7 +424,8 @@ def get_a_player():
 
     player_query = {
         "player_name": {"$regex": name, "$options": 'i'},
-        "status": "unsold",
+        # status starts with 'unsold'
+        "status": {"$regex": r"^unsold", "$options": "i"},
         "leagueId": ObjectId(league_id)
     }
 
@@ -469,12 +470,24 @@ def get_player():
         return json.dumps({"message": "All players are processed"}), 404
 
 
+def handle_special_league_case(updated_data, player_data):
+    if not player_data:
+        return
+
+    target_league_id = ObjectId('67d4dd408786c3e1b4ee172a')
+    if player_data.get('leagueId') == target_league_id and updated_data['status'] == "sold":
+        updated_data["todayPoints"] = 0
+        updated_data["transferredPoints"] = player_data.get('points', 0)
+
+
 @app.route('/updateplayer/<_id>', methods=['PUT'])
 def update_player(_id):
     updated_data = request.get_json()
     filter = {"_id": ObjectId(str(_id))}
 
     collections = db["leagueplayers"]
+    player_data = collections.find_one(filter)
+    handle_special_league_case(updated_data, player_data)
 
     # Exclude _id from update_data to avoid updating it
     updated_data.pop('_id', None)
