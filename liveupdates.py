@@ -218,7 +218,8 @@ def update_player_points_in_db(gameday_data):
             {
                 "player_name": player_name,
                 "status": "sold",  # Only update players with status "sold"
-                "leagueId": {"$ne": draft_league_id}  # Exclude special league
+                "leagueId": {"$nin": [draft_league_id,
+                                      auction_league_id]}  # Exclude special league
             },  # Match by player name
             # Set or update points
             {"$set": {"todayPoints":
@@ -230,7 +231,8 @@ def update_player_points_in_db(gameday_data):
             {
                 "player_name": player_name,
                 "status": "sold",  # Only update players with status "sold"
-                "leagueId": draft_league_id  # Exclude special league
+                "leagueId": {"$in": [draft_league_id,
+                                     auction_league_id]}
             },  # Match by player name
             # Set or update points
             {"$set": {"todayPoints":
@@ -314,3 +316,4 @@ def backup():
 
 # eod_update_rank_mycric()
 # update_unsold_player_points_in_db()
+# update_score_from_mycric()
