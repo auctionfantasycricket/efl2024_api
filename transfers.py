@@ -29,23 +29,26 @@ def generate_release_details():
             current_waiver = team.get('currentWaiver', {})
             out_players = current_waiver.get('out', [])
 
-            # Get first player from out list, or empty string if missing
-            released_player = base64.b64decode(
-                out_players[0]).decode('utf-8') if out_players and out_players[0] != '' else ""
-            if released_player != "":
-                print('dropping player')
+            # Get first two players from out list, or empty strings if missing
+            released_players = [
+                base64.b64decode(out_players[i]).decode(
+                    'utf-8') if len(out_players) > i and out_players[i] != '' else ""
+                for i in range(2)
+            ]
 
-                added_purse = drop_auction_player(released_player)
-            else:
-                added_purse = 0
+            added_purse = 0
+            for released_player in released_players:
+                if released_player != "":
+                    print('dropping player', released_player)
+                    added_purse += drop_auction_player(released_player)
 
             release_details.append({
                 'teamName': team_name,
-                'releasedPlayers': [released_player],
-                'remainingPurse': current_purse+added_purse,
+                'releasedPlayers': released_players,
+                'remainingPurse': current_purse + added_purse,
                 'order': idx + 1  # Order starts from 1
             })
-
+        # print(release_details)
         db.leagues.update_one({"_id": leagueId}, {
                               "$set": {'releaseDetails': release_details}})
 
@@ -115,9 +118,10 @@ def drop_auction_player(input_player):
     if player_data["isOverseas"]:
         owner["fCount"] -= 1
     owner['currentPurse'] += boughtFor
+    owner['maxBid'] = owner['currentPurse'] - 20 * (14 - owner['totalCount'])
     print(
         f"Updating team {owner_team}: reducing totalCount, role-specific counts, and foreign player count if applicable.")
     owner_collection.update_one({"_id": owner["_id"]}, {"$set": owner})
-
+    # print(owner)
     print({"message": "Player successfully dropped and database updated."})
     return boughtFor
