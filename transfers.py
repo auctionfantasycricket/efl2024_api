@@ -51,6 +51,7 @@ def generate_release_details():
         # print(release_details)
         db.leagues.update_one({"_id": leagueId}, {
                               "$set": {'releaseDetails': release_details}})
+        push_waiver_to_history_and_reset('67d4dd408786c3e1b4ee172a')  # auction
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -125,3 +126,27 @@ def drop_auction_player(input_player):
     # print(owner)
     print({"message": "Player successfully dropped and database updated."})
     return boughtFor
+
+
+def push_waiver_to_history_and_reset(leagueID):
+    # Find all teams with the given leagueID
+    teams = db.teams.find({"leagueId": ObjectId(leagueID)})
+
+    for team in teams:
+        # Get current waiver
+        current_waiver = team.get("currentWaiver", None)
+
+        if current_waiver:
+            # Push currentWaiver to waiverHistory (create if it doesn't exist)
+            db.teams.update_one(
+                {"_id": team["_id"]},
+                {"$push": {"waiverHistory": current_waiver},
+                 "$set": {"currentWaiver": {"out": ["", ""], "in": ["", "", "", ""]}}}
+            )
+        else:
+            # Just reset currentWaiver if it doesn't exist
+            db.teams.update_one(
+                {"_id": team["_id"]},
+                {"$set": {"currentWaiver": {
+                    "out": ["", ""], "in": ["", "", "", ""]}}}
+            )
