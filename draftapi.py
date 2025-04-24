@@ -527,6 +527,13 @@ def update_current_waiver_api(userId, teamId):
             {'$set': {'currentWaiver': current_waiver}}
         )
 
+        # Add the current waiver to teamwaivers
+        db.teamwaivers.update_one(
+            {"teamId": ObjectId(teamId)},
+            {"$push": {"waiverHistory": current_waiver}},
+            upsert=True
+        )
+
         if result.modified_count > 0:
             return json_util.dumps({'message': 'Current waiver updated successfully'}), 200
         else:
@@ -632,3 +639,19 @@ def bulk_drop_draft_player():
         results.append(response)
 
     return True
+
+
+@draftapi_bp.route('/getWaiverHistory/<teamId>', methods=['GET'])
+def get_waiver_history(teamId):
+    try:
+        # Query the teamwaivers collection for the waiver history of the given teamId
+        waiver_history = db.teamwaivers.find_one(
+            {"teamId": ObjectId(teamId)}, {"waiverHistory": 1})
+
+        if not waiver_history or "waiverHistory" not in waiver_history:
+            return json_util.dumps({"error": "No waiver history found for the given teamId"}), 404
+
+        return json_util.dumps(waiver_history["waiverHistory"]), 200
+
+    except Exception as e:
+        return json_util.dumps({"error": str(e)}), 500
