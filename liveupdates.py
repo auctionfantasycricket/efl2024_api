@@ -320,3 +320,117 @@ def backup():
 # eod_update_rank_mycric()
 # update_unsold_player_points_in_db()
 # update_score_from_mycric()
+# backup()
+
+
+def fix_all_team_points_total_only():
+    # Step 1: Get all leagueIds where at least one player is sold
+    league_ids = db.leagueplayers.distinct("leagueId", {"status": "sold"})
+
+    for league_id in league_ids:
+        # Step 2: Aggregate points by team from sold players
+        pipeline = [
+            {
+                "$match": {
+                    "leagueId": league_id,
+                    "status": "sold"
+                }
+            },
+            {
+                "$group": {
+                    "_id": "$ownerTeam",
+                    "totalPoints": {"$sum": "$points"}
+                }
+            }
+        ]
+
+        player_points = {
+            doc["_id"]: doc["totalPoints"]
+            for doc in db.leagueplayers.aggregate(pipeline)
+        }
+
+        # Step 3: Add transfer history points from teams
+        teams = db.teams.find({"leagueId": league_id})
+        for team in teams:
+            team_name = team["teamName"]
+            transfer_points = sum(entry.get("points", 0)
+                                  for entry in team.get("transferHistory", []))
+
+            new_total = player_points.get(team_name, 0) + transfer_points
+
+            result = db.teams.update_one(
+                {"_id": team["_id"]},
+                {"$set": {
+                    "totalPoints": new_total,
+                    "yesterdayPoints": new_total
+                }}
+            )
+
+            print(
+                f"[{league_id}] {team_name}: totalPoints={new_total} (updated {result.modified_count})")
+
+
+# look at today points for both leagues, all players and set it to zero, and reduce that from total team points and yesterday points
+
+
+def fix_pbks_dc_game():
+    # Step 1: draft and auction league ids
+    draft_league_id = ObjectId('67da30b26a17f44a19c2241a')
+    auction_league_id = ObjectId('67d4dd408786c3e1b4ee172a')
+    league_ids = [draft_league_id, auction_league_id]
+
+    league_names = {
+        str(draft_league_id): "DRAFT LEAGUE",
+        str(auction_league_id): "AUCTION LEAGUE"
+    }
+
+    for league_id in league_ids:
+        print(f"\n{league_names[str(league_id)]}")
+        teams = db.teams.find({"leagueId": league_id})
+        for team in teams:
+            team_name = team["teamName"]
+            players = list(db.leagueplayers.find(
+                {"ownerTeam": team_name, "leagueId": league_id, "todayPoints": {"$ne": 0}}
+            ))
+
+            if not players:
+                continue
+
+            print(f"\n{team_name}")
+            total_deduction = 0
+            for player in players:
+                player_name = player["player_name"]
+                today_points = player["todayPoints"]
+                print(f"{player_name} - {today_points}")
+                total_deduction += today_points
+
+               # reduce today's Points from leagueplayers points and set today's points to 0
+                db.leagueplayers.update_one(
+                    {"_id": player["_id"]},
+                    {"$set": {
+                        "points": player["points"] - today_points,
+                        "todayPoints": 0
+                    }}
+                )
+                print(f"Updated {player_name} points to {player['points'] - today_points}")
+                
+                
+
+            before = team["totalPoints"]
+            after = before - total_deduction
+            print(f"\ntotal points deducted = {total_deduction}")
+            print(f"Before = {before}")
+            print(f"After = {after}")
+
+            
+            db.teams.update_one(
+                {"_id": team["_id"]},
+                {"$set": {
+                    "totalPoints": after,
+                    "yesterdayPoints": after
+                }}
+            )
+            
+
+
+#fix_pbks_dc_game()
