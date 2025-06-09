@@ -1349,7 +1349,7 @@ def eod_update():
 
 app.register_blueprint(draftapi_bp)
 app.register_blueprint(liveupdates_bp)
-app.register_blueprint(transfers_bp)
+app.register_blueprint(transfers_bp, name="transfers_unique")
 app.register_blueprint(waivers_bp)
 
 if __name__ == '__main__':
