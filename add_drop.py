@@ -1,75 +1,37 @@
 from pymongo import MongoClient
 from bson.objectid import ObjectId
 from config import db
+from utils import _drop_player_core, update_role_counts
 from datetime import datetime, timedelta
 from bson import ObjectId, json_util
 
 
 def drop_draft_player(input_player, leagueid):
-    # Get player information from leagueplayers collection
     player_collection = db.leagueplayers
     id_filter = {"player_name": input_player, "leagueId": ObjectId(leagueid)}
     player_data = player_collection.find_one(id_filter)
 
     if not player_data:
-        print({"error": "Player not found"})
+        print({"error": f"Player not found: {input_player}"})
+        return
 
     owner_team = player_data.get("ownerTeam", "")
-    player_name = player_data.get("player_name", "")
-    points = player_data.get("points", 0)
-    transfer_date = datetime.now().strftime("%d %B, %Y")
-
-    update_data = {
-        "$set": {
-            "ownerTeam": "",
-            "status": "unsold-dropped",
-        }
-    }
-
-    print(
-        f"Updating player {player_name}: setting ownerTeam to empty, status to 'unsold-dropped', and resetting points.")
-    player_collection.update_one(id_filter, update_data)
-
-    owner_query = {"teamName": owner_team, "leagueId": ObjectId(leagueid)}
     owner_collection = db.teams
-    owner = owner_collection.find_one(owner_query)
+    owner = owner_collection.find_one(
+        {"teamName": owner_team, "leagueId": ObjectId(leagueid)})
 
     if not owner:
-        return print({"error": "Owner team not found"})
+        print({"error": "Owner team not found"})
+        return
 
-    transfer_history_entry = {
-        "player_name": player_name,
-        "points": points,
-        "transfer_date": transfer_date,
-    }
+    _drop_player_core(player_data, player_collection, id_filter, owner)
 
-    if "transferHistory" not in owner:
-        owner["transferHistory"] = [transfer_history_entry]
-    else:
-        owner["transferHistory"].append(transfer_history_entry)
-
-    print(
-        f"Adding transfer history for player {player_name} to team {owner_team}.")
-
-    owner["totalCount"] -= 1
-
-    role = player_data.get("player_role", "")
-    if role == "BATTER":
-        owner["batCount"] -= 1
-    elif role == "BOWLER":
-        owner["ballCount"] -= 1
-    elif role == "ALL_ROUNDER":
-        owner["arCount"] -= 1
-    else:
+    if not update_role_counts(owner, player_data.get("player_role", ""), -1):
         print("Role not found")
-
-    if player_data["isOverseas"]:
+    if player_data.get("isOverseas"):
         owner["fCount"] -= 1
 
-    print(
-        f"Updating team {owner_team}: reducing totalCount, role-specific counts, and foreign player count if applicable.")
     owner_collection.update_one({"_id": owner["_id"]}, {"$set": owner})
-
     print({"message": "Player successfully dropped and database updated."})
 
 

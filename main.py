@@ -6,6 +6,7 @@ import urllib
 import requests
 from datetime import datetime, timezone, timedelta
 from config import app, db  # Import the app from the config module
+from utils import get_global_data
 from draftapi import draftapi_bp  # Import the Blueprint
 from liveupdates import liveupdates_bp
 import logging
@@ -47,7 +48,7 @@ def join_team():
         user_id = ObjectId(user_id)
         league_id = ObjectId(league_id)
         team_id = ObjectId(team_id)
-    except:
+    except Exception as e:
         return jsonify({"error": "Invalid ObjectId format"}), 400
 
     # Check if user already joined a team in this league
@@ -80,7 +81,7 @@ def get_my_team():
     try:
         user_id = ObjectId(user_id)  # Convert to ObjectId
         league_id = ObjectId(league_id)
-    except:
+    except Exception as e:
         return jsonify({"error": "Invalid ObjectId format"}), 400
 
     # Find user's team in the given league
@@ -787,10 +788,7 @@ def eod_update_score():
     return 'OK', 200
 
 
-def get_global_data(attribute_name):
-    global_collection = db['global_data']
-    document = global_collection.find_one({})
-    return document[attribute_name]
+# get_global_data is now imported from utils.py
 
 
 def is_valid(id):
@@ -902,45 +900,13 @@ def update_score_new():
 # Endpoint to update fantasy league scores
 
 
-@app.route('/update_score', methods=['POST'])
-def update_score():
-    matchid = get_global_data('last-match-id')
-    #matchids = get_valid_ids(matchid)
-    url = "https://hs-consumer-api.espncricinfo.com/v1/pages/match/details?lang=en&seriesId=1410320&matchId=1422125&latest=true"
-    scorecard = extract_scorecard(url)
-    # print(scorecard)
-    player_points = calculate_points_for_players(scorecard)
-    collection_name = request.args.get(
-        'collectionName', 'efl_playersCentral_test')
-
-    collection = db[collection_name]
-
-    # reset today's points to 0
+def _bulk_update_player_today_points(player_points, collection):
+    """Bulk-write today's calculated points into the player collection."""
     bulk_updates = []
-    players = collection.find({"status": "sold"})
-    for player in players:
-        bulk_updates.append(
-            UpdateOne(
-                {"_id": player["_id"]},
-                {"$set": {
-                    "todayPoints.batting_points": 0,
-                    "todayPoints.bowling_points": 0,
-                    "todayPoints.fielding_points": 0,
-                    "todayPoints.total_points": 0
-                }}
-            )
-        )
-    if bulk_updates:
-        collection.bulk_write(bulk_updates)
-
-    # Update each document in bulk
-    bulk_updates = []
-
     for player_data in player_points:
         player_name = player_data['playername']
-        existing_player = collection.find_one({"player_name": player_name})
-        if not existing_player:
-            print(player_name)
+        if not collection.find_one({"player_name": player_name}):
+            print(f"Player not found in collection: {player_name}")
         bulk_updates.append(
             UpdateOne(
                 {"player_name": player_name},
@@ -954,11 +920,24 @@ def update_score():
         )
     if bulk_updates:
         collection.bulk_write(bulk_updates)
-    ownerCollection = request.args.get(
-        'ownerCollectionName', 'efl_ownerTeams_test')
 
-    ownerCollection = db[ownerCollection]
-    update_owner_points(collection, ownerCollection)
+
+@app.route('/update_score', methods=['POST'])
+def update_score():
+    matchid = get_global_data('last-match-id')
+    url = "https://hs-consumer-api.espncricinfo.com/v1/pages/match/details?lang=en&seriesId=1410320&matchId=1422125&latest=true"
+    scorecard = extract_scorecard(url)
+    player_points = calculate_points_for_players(scorecard)
+
+    collection_name = request.args.get('collectionName', 'efl_playersCentral_test')
+    collection = db[collection_name]
+
+    reset_player_points(collection)
+    _bulk_update_player_today_points(player_points, collection)
+
+    owner_collection_name = request.args.get('ownerCollectionName', 'efl_ownerTeams_test')
+    owner_collection = db[owner_collection_name]
+    update_owner_points(collection, owner_collection)
     return 'OK', 200
 
 
@@ -1123,58 +1102,74 @@ def get_count_of_lbw_and_bowled(bowler):
     return count
 
 
+def _extract_batting_stats(inning):
+    """Return a list of batting stat dicts for batsmen who actually batted."""
+    bat_stats = []
+    for batsman in inning.get("inningBatsmen", []):
+        if batsman.get("battedType") == "yes":
+            bat_stats.append({
+                "player_name": batsman["player"]["longName"],
+                "batting": {
+                    "runs": batsman["runs"],
+                    "balls": batsman["balls"],
+                    "fours": batsman["fours"],
+                    "sixes": batsman["sixes"],
+                    "sr": batsman["strikerate"],
+                    "isOut": batsman["isOut"]
+                }
+            })
+    return bat_stats
+
+
+def _extract_bowling_stats(inning):
+    """Return a list of bowling stat dicts for all bowlers in the inning."""
+    bowl_stats = []
+    for bowler in inning.get("inningBowlers", []):
+        bowl_stats.append({
+            "player_name": bowler["player"]["longName"],
+            "bowling": {
+                "wickets": bowler["wickets"],
+                "maidens": bowler["maidens"],
+                "economy": bowler["economy"],
+                "lbwbowledcount": get_count_of_lbw_and_bowled(bowler),
+                "overs": bowler["overs"]
+            }
+        })
+    return bowl_stats
+
+
+def _extract_fielding_stats(inning):
+    """Return a dict of fielding stat dicts keyed by player name."""
+    field_stats = {}
+    for wicket in inning.get("inningWickets", []):
+        dismissal_type = wicket.get("dismissalType")
+        for fielder in wicket.get("dismissalFielders", []):
+            player_info = fielder.get("player")
+            if player_info and player_info != "null":
+                player_name = player_info["longName"]
+                if player_name not in field_stats:
+                    field_stats[player_name] = {
+                        "player_name": player_name,
+                        "fielding": {"catches": 0, "runouts": 0, "stumpings": 0}
+                    }
+                if dismissal_type == 1:
+                    field_stats[player_name]["fielding"]["catches"] += 1
+                elif dismissal_type == 4:
+                    field_stats[player_name]["fielding"]["runouts"] += 1
+                elif dismissal_type == 5:
+                    field_stats[player_name]["fielding"]["stumpings"] += 1
+    return field_stats
+
+
 def extract_scorecard(data):
     player_stats = []
 
     for inning in data.get("scorecard", {}).get("innings", []):
-        bat_stats = []
-        bowl_stats = []
-        field_stats = {}
-
-        for batsman in inning.get("inningBatsmen", []):
-            if batsman.get("battedType") == "yes":
-                bat_stats.append({
-                    "player_name": batsman["player"]["longName"],
-                    "batting": {
-                        "runs": batsman["runs"],
-                        "balls": batsman["balls"],
-                        "fours": batsman["fours"],
-                        "sixes": batsman["sixes"],
-                        "sr": batsman["strikerate"],
-                        "isOut": batsman["isOut"]
-                    }
-                })
-
-        for bowler in inning.get("inningBowlers", []):
-            bowl_stats.append({
-                "player_name": bowler["player"]["longName"],
-                "bowling": {
-                    "wickets": bowler["wickets"],
-                    "maidens": bowler["maidens"],
-                    "economy": bowler["economy"],
-                    "lbwbowledcount": get_count_of_lbw_and_bowled(bowler),
-                    "overs": bowler["overs"]
-                }
-            })
-
-        for wicket in inning.get("inningWickets", []):
-            dismissal_type = wicket.get("dismissalType")
-            fielders = wicket.get("dismissalFielders", [])
-            for fielder in fielders:
-                player_info = fielder.get("player")
-                if player_info and player_info != "null":
-                    player_name = player_info["longName"]
-                    field_stats[player_name] = field_stats.get(player_name, {
-                                                               "player_name": player_name, "fielding": {"catches": 0, "runouts": 0, "stumpings": 0}})
-                    if dismissal_type == 1:
-                        field_stats[player_name]["fielding"]["catches"] += 1
-                    elif dismissal_type == 4:
-                        field_stats[player_name]["fielding"]["runouts"] += 1
-                    elif dismissal_type == 5:
-                        field_stats[player_name]["fielding"]["stumpings"] += 1
-
-        player_stats.extend(bat_stats + bowl_stats +
-                            list(field_stats.values()))
+        player_stats.extend(
+            _extract_batting_stats(inning) +
+            _extract_bowling_stats(inning) +
+            list(_extract_fielding_stats(inning).values())
+        )
 
     merged_data = {}
     for player_stat in player_stats:

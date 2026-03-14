@@ -1,11 +1,12 @@
-from config import db
+from config import db, AUCTION_LEAGUE_ID
+from utils import push_waiver_to_history_and_reset, _drop_player_core, update_role_counts
 from bson import ObjectId
 import base64
 from flask import Blueprint, jsonify
 from datetime import datetime
 
 
-leagueId = ObjectId('67d4dd408786c3e1b4ee172a')
+leagueId = AUCTION_LEAGUE_ID
 
 transfers_bp = Blueprint('transfers', __name__)
 
@@ -51,102 +52,43 @@ def generate_release_details():
         # print(release_details)
         db.leagues.update_one({"_id": leagueId}, {
                               "$set": {'releaseDetails': release_details}})
-        push_waiver_to_history_and_reset('67d4dd408786c3e1b4ee172a')  # auction
+        push_waiver_to_history_and_reset(str(AUCTION_LEAGUE_ID))  # auction
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 
 def drop_auction_player(input_player):
-    # Get player information from leagueplayers collection
     player_collection = db.leagueplayers
     id_filter = {"player_name": input_player, "leagueId": leagueId}
     player_data = player_collection.find_one(id_filter)
 
     if not player_data:
-        print({"error": "Player not found"})
+        print({"error": f"Player not found: {input_player}"})
+        return 0
 
     owner_team = player_data.get("ownerTeam", "")
-    player_name = player_data.get("player_name", "")
-    points = player_data.get("points", 0)
-    boughtFor = player_data.get('boughtFor', 0)
-    transfer_date = datetime.now().strftime("%d %B, %Y")
-
-    update_data = {
-        "$set": {
-            "ownerTeam": "",
-            "status": "unsold-dropped",
-        }
-    }
-
-    print(
-        f"Updating player {player_name}: setting ownerTeam to empty, status to 'unsold-dropped', and resetting points.")
-    player_collection.update_one(id_filter, update_data)
-
-    owner_query = {"teamName": owner_team, "leagueId": leagueId}
     owner_collection = db.teams
-    owner = owner_collection.find_one(owner_query)
+    owner = owner_collection.find_one({"teamName": owner_team, "leagueId": leagueId})
 
     if not owner:
-        return print({"error": "Owner team not found"})
+        print({"error": "Owner team not found"})
+        return 0
 
-    transfer_history_entry = {
-        "player_name": player_name,
-        "points": points,
-        "transfer_date": transfer_date,
-    }
+    bought_for = _drop_player_core(player_data, player_collection, id_filter, owner)
 
-    if "transferHistory" not in owner:
-        owner["transferHistory"] = [transfer_history_entry]
-    else:
-        owner["transferHistory"].append(transfer_history_entry)
-
-    print(
-        f"Adding transfer history for player {player_name} to team {owner_team}.")
-
-    owner["totalCount"] -= 1
-
-    role = player_data.get("player_role", "")
-    if role == "BATTER":
-        owner["batCount"] -= 1
-    elif role == "BOWLER":
-        owner["ballCount"] -= 1
-    elif role == "ALL_ROUNDER":
-        owner["arCount"] -= 1
-    else:
+    if not update_role_counts(owner, player_data.get("player_role", ""), -1):
         print("Role not found")
-
-    if player_data["isOverseas"]:
+    if player_data.get("isOverseas"):
         owner["fCount"] -= 1
-    owner['currentPurse'] += boughtFor
+
+    # Auction-specific: refund purse and recalculate maxBid
+    owner['currentPurse'] += bought_for
     owner['maxBid'] = owner['currentPurse'] - 20 * (14 - owner['totalCount'])
-    print(
-        f"Updating team {owner_team}: reducing totalCount, role-specific counts, and foreign player count if applicable.")
+
     owner_collection.update_one({"_id": owner["_id"]}, {"$set": owner})
-    # print(owner)
     print({"message": "Player successfully dropped and database updated."})
-    return boughtFor
+    return bought_for
 
 
-def push_waiver_to_history_and_reset(leagueID):
-    # Find all teams with the given leagueID
-    teams = db.teams.find({"leagueId": ObjectId(leagueID)})
-
-    for team in teams:
-        # Get current waiver
-        current_waiver = team.get("currentWaiver", None)
-
-        if current_waiver:
-            # Push currentWaiver to waiverHistory (create if it doesn't exist)
-            db.teams.update_one(
-                {"_id": team["_id"]},
-                {"$push": {"waiverHistory": current_waiver},
-                 "$set": {"currentWaiver": {"out": ["", ""], "in": ["", "", "", ""]}}}
-            )
-        else:
-            # Just reset currentWaiver if it doesn't exist
-            db.teams.update_one(
-                {"_id": team["_id"]},
-                {"$set": {"currentWaiver": {
-                    "out": ["", ""], "in": ["", "", "", ""]}}}
-            )
+# push_waiver_to_history_and_reset is now imported from utils.py

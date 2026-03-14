@@ -1,5 +1,6 @@
 from flask import Blueprint, request
-from config import db, app
+from config import db, app, DRAFT_LEAGUE_ID, AUCTION_LEAGUE_ID, ASSOCIATE_NATIONS
+from utils import de_arr, _drop_player_core
 from bson import ObjectId, json_util
 from datetime import datetime, timedelta
 from collections import deque
@@ -143,11 +144,7 @@ def decrypt_arr(arr):
     return outArr
 
 
-def de_arr(arr):
-    output = []
-    for a in arr:
-        output.append(base64.b64decode(a).decode('utf-8'))
-    return output
+# de_arr is now imported from utils.py
 
 
 def get_teams_and_sort():
@@ -224,12 +221,9 @@ def swap_possible(teamName, teamdict, inPlayer, outPlayer):
         tempBatCount += 1
         tempWKCount += 1
 
-    associate_nations = ["Canada", "Namibia", "Nepal", "Netherlands", "Oman",
-                         "Papua-new-guinea", "Scotland", "Uganda", "United-states-of-america", "Ireland"]
-
-    if inCountry in associate_nations:
+    if inCountry in ASSOCIATE_NATIONS:
         tempFCount += 1
-    if outCountry in associate_nations:
+    if outCountry in ASSOCIATE_NATIONS:
         tempFCount -= 1
 
     if outRole == "batter":
@@ -344,59 +338,20 @@ def decode_and_process(orders, docs_dict):
 
 @draftapi_bp.route('/drop_draft_player/<input_player>', methods=['PUT'])
 def drop_draft_player(input_player):
-    # Filter to identify the player to delete
     id_filter = {"player_name": input_player}
-
-    # Get the collectionName from the query parameter
-    collection_name = request.args.get(
-        'collectionName', 'eflDraft_playersCentral')
-
-    # Get player information from playerCentral
+    collection_name = request.args.get('collectionName', 'eflDraft_playersCentral')
     player_collection = db[collection_name]
     player_data = player_collection.find_one(id_filter)
 
-    # Retrieve necessary fields from player data
-
     owner_team = player_data.get("ownerTeam", "")
-    player_name = player_data.get("player_name", "")
-    points = player_data.get("points", 0)
-    transfer_date = datetime.now().strftime("%d %B, %Y")
-
-    # Update player data to reset boughtFor and ownerName
-    update_data = {
-        "$set": {
-
-            "ownerTeam": "",
-            "status": "unsold-dropped",
-            "points": 0,
-        }
-    }
-
-    # Update player in the collection
-    result = player_collection.update_one(id_filter, update_data)
-
-    # Query to find owner's data
-    owner_query = {"teamName": owner_team}
-    ownercollection_name = request.args.get(
-        'ownerCollectionName', 'eflDraft_ownerTeams')
+    ownercollection_name = request.args.get('ownerCollectionName', 'eflDraft_ownerTeams')
     ownercollection = db[ownercollection_name]
-    owner = ownercollection.find_one(owner_query)
+    owner = ownercollection.find_one({"teamName": owner_team})
 
-    # Add transfer history to owner
-    transfer_history_entry = {
-        "player_name": player_name,
-        "points": points,
-        "transfer_date": transfer_date,
+    _drop_player_core(player_data, player_collection, id_filter, owner,
+                      extra_player_fields={"points": 0})
 
-    }
-    if "transferHistory" not in owner:
-        owner["transferHistory"] = [transfer_history_entry]
-    else:
-        owner["transferHistory"].append(transfer_history_entry)
-
-    owner["totalCount"] -= 1
-
-    # Adjust specific count based on player's role
+    # draftapi uses lowercase role strings and adds wicketkeeper support
     role = player_data.get("player_role", "")
     if role == "batter":
         owner["batCount"] -= 1
@@ -410,19 +365,11 @@ def drop_draft_player(input_player):
     else:
         print("Role not found")
 
-    # Adjust foreign player count if necessary
-
-    associate_nations = ["Canada", "Namibia", "Nepal", "Netherlands", "Oman",
-                         "Papua-new-guinea", "Scotland", "Uganda", "United-states-of-america", "Ireland"]
-
-    if player_data["country"] in associate_nations:
+    if player_data["country"] in ASSOCIATE_NATIONS:
         owner["fCount"] -= 1
 
-    # Update owner data in the collection
     ownercollection.update_one({"_id": owner["_id"]}, {"$set": owner})
-
-    # Return the result of updating the player
-    return json_util.dumps(result.raw_result)
+    return json_util.dumps({"message": "Player dropped successfully"})
 
 
 @draftapi_bp.route('/processWaivers', methods=['POST'])
@@ -491,10 +438,8 @@ def check_deadline_for_team(team_id, auction_league_id, draft_league_id):
 @draftapi_bp.route('/updateCurrentWaiver/<userId>/<teamId>', methods=['PUT'])
 def update_current_waiver_api(userId, teamId):
     try:
-        auctionLeagueId = ObjectId('67d4dd408786c3e1b4ee172a')
-        draftLeagueId = ObjectId('67da30b26a17f44a19c2241a')
         is_allowed, error_message = check_deadline_for_team(
-            teamId, auctionLeagueId, draftLeagueId)
+            teamId, AUCTION_LEAGUE_ID, DRAFT_LEAGUE_ID)
         if not is_allowed:
             return json_util.dumps({'error': error_message}), 400
 

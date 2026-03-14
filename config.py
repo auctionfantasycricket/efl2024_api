@@ -3,6 +3,7 @@ from flask_cors import CORS
 import certifi
 from pymongo import MongoClient
 from dotenv import load_dotenv
+from bson import ObjectId
 import os
 
 load_dotenv()
@@ -19,3 +20,17 @@ try:
         "ismaster")["setName"])
 except Exception as e:
     print(f"Error: {e}")
+
+# ---------------------------------------------------------------------------
+# Shared constants
+# ---------------------------------------------------------------------------
+
+DRAFT_LEAGUE_ID = ObjectId('67da30b26a17f44a19c2241a')
+AUCTION_LEAGUE_ID = ObjectId('67d4dd408786c3e1b4ee172a')
+
+ASSOCIATE_NATIONS = [
+    "Canada", "Namibia", "Nepal", "Netherlands", "Oman",
+    "Papua-new-guinea", "Scotland", "Uganda", "United-states-of-america", "Ireland"
+]
+
+ESPN_API_BASE = "https://hs-consumer-api.espncricinfo.com/v1/pages/match/details"

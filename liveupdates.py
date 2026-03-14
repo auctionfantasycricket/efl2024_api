@@ -2,6 +2,7 @@ import requests
 from pymongo import UpdateOne, UpdateMany, DESCENDING
 from flask import Blueprint
 from config import db
+from utils import get_global_data
 from datetime import datetime, timezone, timedelta
 from bson import ObjectId
 import re
@@ -99,10 +100,7 @@ def increment_match_id():
     print("updated match id to " + str(new_match_id))
 
 
-def get_global_data(attribute_name):
-    global_collection = db['global_data']
-    document = global_collection.find_one({})
-    return document[attribute_name]
+# get_global_data is now imported from utils.py
 
 
 def update_timestamps(attribute_name):

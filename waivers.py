@@ -1,6 +1,7 @@
 from bson.objectid import ObjectId
 from bson import ObjectId
-from config import db
+from config import db, DRAFT_LEAGUE_ID
+from utils import push_waiver_to_history_and_reset
 import random
 import base64
 import binascii
@@ -9,7 +10,7 @@ import add_drop
 
 
 # Existing functions...
-waivers_bp = Blueprint('transfers', __name__)
+waivers_bp = Blueprint('waivers', __name__)
 
 
 def get_teams_sorted_by_rank(league_id):
@@ -208,14 +209,14 @@ def get_result(league_id, nextdrop, nextpick, team):
 
 
 def do_the_trasnfers(nextdrop, nextpick, team):
-    add_drop.draftplayer(nextpick, team, '67da30b26a17f44a19c2241a')
-    add_drop.drop_draft_player(nextdrop, '67da30b26a17f44a19c2241a')
+    add_drop.draftplayer(nextpick, team, str(DRAFT_LEAGUE_ID))
+    add_drop.drop_draft_player(nextdrop, str(DRAFT_LEAGUE_ID))
 
 
 def generate_waiver_results(waiver_order, generateEmpty=True):
     waiver_results = []
     dropped_count = {}  # Tracks how many players have been dropped per team
-    waiver_dict = get_waiver_dict('67da30b26a17f44a19c2241a')
+    waiver_dict = get_waiver_dict(str(DRAFT_LEAGUE_ID))
     for round_num, order in enumerate(waiver_order, start=1):
         round_result = {
             "round": round_num,
@@ -249,7 +250,7 @@ def generate_waiver_results(waiver_order, generateEmpty=True):
                     status, message = "", "All Transferred done"
                 else:
                     status, message = get_result(
-                        '67da30b26a17f44a19c2241a', nextdrop, nextpick, team)
+                        str(DRAFT_LEAGUE_ID), nextdrop, nextpick, team)
                 if status == "success":
                     dropped_count[team] = drop_index+1
                     do_the_trasnfers(nextdrop, nextpick, team)
@@ -271,17 +272,17 @@ def generate_waiver_results(waiver_order, generateEmpty=True):
 def final_generate_waiver_results(generateEmpty=True):
     # Example usage:
     waiverResults = generate_waiver_process(
-        '67da30b26a17f44a19c2241a', generateEmpty)
+        str(DRAFT_LEAGUE_ID), generateEmpty)
     # Call update_one properly by using parentheses
     result = db.leagues.update_one(
         # Find the league by its ID
-        {"_id": ObjectId('67da30b26a17f44a19c2241a')},
+        {"_id": DRAFT_LEAGUE_ID},
         # Upsert the waiverResults field
         {"$set": {"waiverResults": waiverResults}},
         upsert=True  # Ensures the document is created if not found
     )
     if not generateEmpty:
-        push_waiver_to_history_and_reset('67da30b26a17f44a19c2241a')
+        push_waiver_to_history_and_reset(str(DRAFT_LEAGUE_ID))
     # Print update result details
     print(
         f"Matched: {result.matched_count}, Modified: {result.modified_count}")
@@ -290,57 +291,38 @@ def final_generate_waiver_results(generateEmpty=True):
         print(f"No matching league found. A new document may have been created.")
     elif result.modified_count > 0:
         print(
-            f"Waiver results successfully updated for league ID: 67da30b26a17f44a19c2241a")
+            f"Waiver results successfully updated for league ID: {DRAFT_LEAGUE_ID}")
     else:
         print(f"Waiver results were already up to date. No changes made.")
 
-
-def push_waiver_to_history_and_reset(leagueID):
-    # Find all teams with the given leagueID
-    teams = db.teams.find({"leagueId": ObjectId(leagueID)})
-
-    for team in teams:
-        # Get current waiver
-        current_waiver = team.get("currentWaiver", None)
-
-        if current_waiver:
-            # Push currentWaiver to waiverHistory (create if it doesn't exist)
-            db.teams.update_one(
-                {"_id": team["_id"]},
-                {"$push": {"waiverHistory": current_waiver},
-                 "$set": {"currentWaiver": {"out": ["", ""], "in": ["", "", "", ""]}}}
-            )
-        else:
-            # Just reset currentWaiver if it doesn't exist
-            db.teams.update_one(
-                {"_id": team["_id"]},
-                {"$set": {"currentWaiver": {
-                    "out": ["", ""], "in": ["", "", "", ""]}}}
-            )
-
-# print(get_waiver_dict('67da30b26a17f44a19c2241a'))
+    return jsonify({"message": "Waiver results generated", "waiverResults": waiverResults}), 200
 
 
-# get_waiver_dict('67da30b26a17f44a19c2241a')
+# push_waiver_to_history_and_reset is now imported from utils.py
+
+# print(get_waiver_dict(str(DRAFT_LEAGUE_ID)))
+
+
+# get_waiver_dict(str(DRAFT_LEAGUE_ID))
 # print(generate_waiver_process(
- #   '67da30b26a17f44a19c2241a', generateEmpty=True))
+ #   str(DRAFT_LEAGUE_ID), generateEmpty=True))
 
 #final_generate_waiver_results(generateEmpty=False)
 #final_generate_waiver_results(generateEmpty=True)
 
-# push_waiver_to_history_and_reset('67da30b26a17f44a19c2241a')  # draft
+# push_waiver_to_history_and_reset(str(DRAFT_LEAGUE_ID))  # draft
 # push_waiver_to_history_and_reset('67d4dd408786c3e1b4ee172a')  # auction
 
 '''
 print(generate_waiver_process(
-    '67da30b26a17f44a19c2241a', generateEmpty=False))
+    str(DRAFT_LEAGUE_ID), generateEmpty=False))
 
-print(get_result('67da30b26a17f44a19c2241a', 'Phil Salt',
+print(get_result(str(DRAFT_LEAGUE_ID), 'Phil Salt',
       'Jitesh Sharma', 'MotaBhai ChotaBhai'))
-print(get_result('67da30b26a17f44a19c2241a', 'Phil Salt',
+print(get_result(str(DRAFT_LEAGUE_ID), 'Phil Salt',
       '', 'MotaBhai ChotaBhai'))
-print(get_result('67da30b26a17f44a19c2241a', '',
+print(get_result(str(DRAFT_LEAGUE_ID), '',
       'Jitesh Sharma', 'MotaBhai ChotaBhai'))
-print(get_result('67da30b26a17f44a19c2241a', 'Phil Salt',
+print(get_result(str(DRAFT_LEAGUE_ID), 'Phil Salt',
       'Priyansh Arya', 'MotaBhai ChotaBhai'))
 '''

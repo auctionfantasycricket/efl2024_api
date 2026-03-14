@@ -6,3 +6,6 @@ Flask_Cors
 requests
 pyjwt
 dotenv
+pytest
+pytest-mock
+mongomock
