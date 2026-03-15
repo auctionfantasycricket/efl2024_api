@@ -15,6 +15,14 @@ from transfers import transfers_bp
 from waivers import waivers_bp
 
 
+@app.route('/version', methods=['GET'])
+def get_version():
+    with open("pyproject.toml", "rb") as f:
+        import tomllib
+        data = tomllib.load(f)
+    return jsonify({"version": data["project"]["version"]})
+
+
 @app.route('/sample_api', methods=['GET'])
 def get_sample_data():
     # Static JSON data
