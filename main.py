@@ -176,7 +176,20 @@ def get_data_from_mongodb():
             query['leagueId'] = ObjectId(league_id)
         print(query)
         # Retrieve data from MongoDB based on the query
-        data_from_mongo = list(collection.find(query))
+        if collection_name == "leagueplayers":
+            pipeline = [
+                {"$match": query},
+                {"$lookup": {"from": "players", "localField": "playerId", "foreignField": "_id", "as": "playerData"}},
+                {"$unwind": "$playerData"},
+            ]
+            merged = []
+            for doc in collection.aggregate(pipeline):
+                player_meta = doc.pop("playerData")
+                merged_doc = {**player_meta, **doc}
+                merged.append(merged_doc)
+            data_from_mongo = merged
+        else:
+            data_from_mongo = list(collection.find(query))
         print(data_from_mongo)
         serialized_data = json_util.dumps(data_from_mongo, default=str)
 
@@ -322,22 +335,14 @@ def create_league():
         new_league = db.leagues.insert_one(league_data)
         league_id = new_league.inserted_id
 
-        # Step 2: Copy players to leagueplayers collection
-        players = db.players.find({})
-        for player in players:
-            player_copy = {
-                "player_name": player["player_name"],
-                "player_role": player["player_role"],
-                "ipl_team_name": player["ipl_team_name"],
-                "isOverseas": player["isOverseas"],
-                "ipl_salary": player["ipl_salary"],
-                "rank": player["rank"],
-                "tier": player["tier"],
-                "afc_base_salary": player["afc_base_salary"],
-                "status": "unsold",
-                "leagueId": league_id  # Reference the newly created league
-            }
-            db.leagueplayers.insert_one(player_copy)
+        # Step 2: Copy players to leagueplayers collection (playerId ref only)
+        players = list(db.players.find({}))
+        league_players = [
+            {"playerId": p["_id"], "status": "unsold", "leagueId": league_id}
+            for p in players
+        ]
+        if league_players:
+            db.leagueplayers.insert_many(league_players)
 
         # Step 3: Add leagueId to user's joinedLeagues array
         db.users.update_one(
@@ -424,20 +429,25 @@ def get_a_player():
     name = urllib.parse.unquote(name)
     league_id = request.args.get('leagueId', '')
 
-    player_query = {
-        "player_name": {"$regex": name, "$options": 'i'},
-        # status starts with 'unsold'
-        "status": {"$regex": r"^unsold", "$options": "i"},
-        "leagueId": ObjectId(league_id)
-    }
-
     collection = db["leagueplayers"]
-    player_data = collection.find_one(player_query)
+    pipeline = [
+        {"$match": {"status": {"$regex": r"^unsold", "$options": "i"}, "leagueId": ObjectId(league_id)}},
+        {"$lookup": {"from": "players", "localField": "playerId", "foreignField": "_id", "as": "playerData"}},
+        {"$unwind": "$playerData"},
+    ]
+    import re
+    name_pattern = re.compile(name, re.IGNORECASE)
+    player_data = None
+    for doc in collection.aggregate(pipeline):
+        player_meta = doc.pop("playerData")
+        merged = {**player_meta, **doc}
+        if name_pattern.search(merged.get("player_name", "")):
+            player_data = merged
+            break
 
     if player_data:
         return json.loads(json_util.dumps(player_data))
     else:
-        # Return 404 status code
         return jsonify({"error": "Player not found"}), 404
 
 
@@ -452,8 +462,14 @@ def get_player():
 
     collection = db['leagueplayers']
 
-    cursor = collection.find({"leagueId": ObjectId(league_id)})
-    for item in cursor:
+    pipeline = [
+        {"$match": {"leagueId": ObjectId(league_id)}},
+        {"$lookup": {"from": "players", "localField": "playerId", "foreignField": "_id", "as": "playerData"}},
+        {"$unwind": "$playerData"},
+    ]
+    for doc in collection.aggregate(pipeline):
+        player_meta = doc.pop("playerData")
+        item = {**player_meta, **doc}
         tier = item['tier']
         if tier in tiers and item['status'] == "unsold":
             tiers[tier].append(item)
