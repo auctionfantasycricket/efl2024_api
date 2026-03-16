@@ -41,6 +41,13 @@
 - `teamwaivers` — waiver history per team
 - `global_data` — match state and deadlines
 
+## Versioning
+- Version defined in `pyproject.toml` (`[project].version`)
+- `GET /version` returns current version from prod
+- Patch version auto-bumps on every `git push` via `.git/hooks/pre-push`
+- On a fresh clone, run `sh scripts/install-hooks.sh` to install the hook
+- Python runtime pinned to 3.13 via `.python-version`
+
 ## Season Setup Checklist (for 2026)
 1. `players` collection already populated in `afc2026`
 2. Create EFL Draft + EFL Auction leagues via `POST /create_league`
