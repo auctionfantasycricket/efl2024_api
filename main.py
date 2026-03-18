@@ -500,8 +500,8 @@ def handle_special_league_case(updated_data, player_data):
     if not player_data:
         return
 
-    target_league_id = ObjectId('67d4dd408786c3e1b4ee172a')
-    if player_data.get('leagueId') == target_league_id and updated_data['status'] == "sold":
+    from config import AUCTION_LEAGUE_ID
+    if player_data.get('leagueId') == AUCTION_LEAGUE_ID and updated_data['status'] == "sold":
         updated_data["todayPoints"] = 0
         updated_data["transferredPoints"] = player_data.get('points', 0)
 
@@ -514,6 +514,13 @@ def update_player(_id):
     collections = db["leagueplayers"]
     player_data = collections.find_one(filter)
     handle_special_league_case(updated_data, player_data)
+
+    # Read player_role and isOverseas from players master via playerId
+    if player_data and "playerId" in player_data:
+        player_meta = db.players.find_one({"_id": player_data["playerId"]})
+        if player_meta:
+            updated_data["player_role"] = player_meta["player_role"]
+            updated_data["isOverseas"] = player_meta["isOverseas"]
 
     # Exclude _id from update_data to avoid updating it
     updated_data.pop('_id', None)
