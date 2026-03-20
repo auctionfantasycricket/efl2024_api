@@ -7,13 +7,22 @@ from bson import ObjectId, json_util
 
 
 def drop_draft_player(input_player, leagueid):
+    # Resolve player_name -> playerId via master collection
+    player_meta = db.players.find_one({"player_name": input_player})
+    if not player_meta:
+        print({"error": f"Player not found in master: {input_player}"})
+        return
+
     player_collection = db.leagueplayers
-    id_filter = {"player_name": input_player, "leagueId": ObjectId(leagueid)}
+    id_filter = {"playerId": player_meta["_id"], "leagueId": ObjectId(leagueid)}
     player_data = player_collection.find_one(id_filter)
 
     if not player_data:
-        print({"error": f"Player not found: {input_player}"})
+        print({"error": f"Player not found in league: {input_player}"})
         return
+
+    # Merge master fields so _drop_player_core and role helpers have player_name, player_role, isOverseas
+    player_data_merged = {**player_meta, **player_data}
 
     owner_team = player_data.get("ownerTeam", "")
     owner_collection = db.teams
@@ -24,11 +33,11 @@ def drop_draft_player(input_player, leagueid):
         print({"error": "Owner team not found"})
         return
 
-    _drop_player_core(player_data, player_collection, id_filter, owner)
+    _drop_player_core(player_data_merged, player_collection, id_filter, owner)
 
-    if not update_role_counts(owner, player_data.get("player_role", ""), -1):
+    if not update_role_counts(owner, player_meta.get("player_role", ""), -1):
         print("Role not found")
-    if player_data.get("isOverseas"):
+    if player_meta.get("isOverseas"):
         owner["fCount"] -= 1
 
     owner_collection.update_one({"_id": owner["_id"]}, {"$set": owner})
@@ -36,38 +45,34 @@ def drop_draft_player(input_player, leagueid):
 
 
 def draftplayer(pick, owner_team, leagueId):
-    player_name = pick  # Assuming pick contains the player's name
+    player_name = pick
 
-    # Get collection names
-    collection_name = 'leagueplayers'
-    owner_collection_name = 'teams'
+    # Resolve player_name -> playerId via master collection
+    player_meta = db.players.find_one({"player_name": player_name})
+    if not player_meta:
+        return json_util.dumps({"error": "Player not found in master"}), 404
 
-    playerCollection = db[collection_name]
-    player_data = playerCollection.find_one(
-        {"player_name": player_name, "leagueId": ObjectId(leagueId)})
+    playerCollection = db.leagueplayers
+    id_filter = {"playerId": player_meta["_id"], "leagueId": ObjectId(leagueId)}
+    player_data = playerCollection.find_one(id_filter)
 
     if player_data is None:
-        return json_util.dumps({"error": "Player not found"}), 404
+        return json_util.dumps({"error": "Player not found in league"}), 404
 
-    updated_data = {}
+    updated_data = {
+        "todayPoints": 0,
+        "transferredPoints": player_data.get('points', 0),
+        "status": 'sold',
+        "ownerTeam": owner_team,
+    }
 
-    today_points = 0
+    playerCollection.update_one(id_filter, {"$set": updated_data})
 
-    # Add 'todayPoints' to updated_data
-    updated_data["todayPoints"] = today_points
-    updated_data["transferredPoints"] = player_data.get('points', 0)
-    updated_data['status'] = 'sold'
-    updated_data['ownerTeam'] = owner_team
+    # Merge master fields so update_owner_items has player_name, player_role, isOverseas
+    player_data_merged = {**player_meta, **player_data}
+    owner_collection = db.teams
+    update_owner_data(owner_team, owner_collection, player_data_merged, leagueId)
 
-    # Update player record in the database
-    result = playerCollection.update_one(
-        {"player_name": player_name, "leagueId": ObjectId(leagueId)}, {"$set": updated_data})
-
-    # Update the owner's data accordingly
-    owner_collection = db[owner_collection_name]
-    update_owner_data(owner_team, owner_collection, player_data, leagueId)
-
-    # Return a success message
     return json_util.dumps({"message": "Player drafted successfully"})
 
 

@@ -166,19 +166,27 @@ def get_result(league_id, nextdrop, nextpick, team):
         return "", "No player provided in preference"
     if not nextdrop:
         return "", "No player provided in drop"
-    # pickedplayers = set()
-    nextdrop_data = db.leagueplayers.find_one(
-        {"leagueId": ObjectId(league_id), "player_name": nextdrop},
-        {"player_name": 1, "player_role": 1, "isOverseas": 1, "_id": 0}
+
+    # Resolve player names to playerIds via master collection
+    nextdrop_meta = db.players.find_one({"player_name": nextdrop})
+    nextpick_meta = db.players.find_one({"player_name": nextpick})
+
+    if not nextdrop_meta or not nextpick_meta:
+        return "failure", "One or both players not found in master"
+
+    nextdrop_lp = db.leagueplayers.find_one(
+        {"leagueId": ObjectId(league_id), "playerId": nextdrop_meta["_id"]}
+    )
+    nextpick_lp = db.leagueplayers.find_one(
+        {"leagueId": ObjectId(league_id), "playerId": nextpick_meta["_id"]}
     )
 
-    nextpick_data = db.leagueplayers.find_one(
-        {"leagueId": ObjectId(league_id), "player_name": nextpick},
-        {"player_name": 1, "player_role": 1, "isOverseas": 1, "_id": 0}
-    )
+    if not nextdrop_lp or not nextpick_lp:
+        return "failure", "One or both players not found in league"
 
-    if not nextdrop_data or not nextpick_data:
-        return "failure", "One or both players not found"
+    # Merge master fields so swap_possible has player_role and isOverseas
+    nextdrop_data = {**nextdrop_meta, **nextdrop_lp}
+    nextpick_data = {**nextpick_meta, **nextpick_lp}
 
     team_data = db.teams.find_one(
         {"leagueId": ObjectId(league_id), "teamName": team},

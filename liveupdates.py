@@ -1,7 +1,7 @@
 import requests
 from pymongo import UpdateOne, UpdateMany, DESCENDING
 from flask import Blueprint
-from config import db
+from config import db, DRAFT_LEAGUE_ID, AUCTION_LEAGUE_ID
 from utils import get_global_data
 from datetime import datetime, timezone, timedelta
 from bson import ObjectId
@@ -187,55 +187,58 @@ def update_owner_points_and_rank():
 
 def update_player_points_in_db(gameday_data):
     """Collect update operations and execute them in bulk."""
-    draft_league_id = ObjectId('67da30b26a17f44a19c2241a')
-    auction_league_id = ObjectId('67d4dd408786c3e1b4ee172a')
     api_players = gameday_data["Data"]["Value"]["Players"]
     bulk_operations = []
     special_ops = []
 
+    # Build player_name -> _id map from master collection (new schema: no player_name in leagueplayers)
+    player_name_to_id = {
+        p["player_name"]: p["_id"]
+        for p in db.players.find({}, {"player_name": 1})
+    }
+
+    # Build transfer_points_map keyed by (leagueId, playerId)
     transfer_points_map = {}
-
     special_league_players = db.leagueplayers.find(
-        {"leagueId": {"$in": [draft_league_id,
-                              auction_league_id]}, "status": "sold"},
-        {"player_name": 1, "transferredPoints": 1, "leagueId": 1}
+        {"leagueId": {"$in": [DRAFT_LEAGUE_ID, AUCTION_LEAGUE_ID]}, "status": "sold"},
+        {"playerId": 1, "transferredPoints": 1, "leagueId": 1}
     )
-
     for player in special_league_players:
-        transfer_points_map[(player["leagueId"], player["player_name"])] = player.get(
+        transfer_points_map[(player["leagueId"], player["playerId"])] = player.get(
             "transferredPoints", 0)
 
     for player in api_players:
         player_name = player["Name"]
         today_points = player.get("GamedayPoints", 0)
         total_points = player.get("OverallPoints", 0)
+
+        player_id = player_name_to_id.get(player_name)
+        if not player_id:
+            continue  # Player not in master, skip
+
         print(player_name, today_points, total_points)
 
-        # Create a bulk update operation for each player
         bulk_operations.append(UpdateMany(
             {
-                "player_name": player_name,
-                "status": "sold",  # Only update players with status "sold"
-                "leagueId": {"$nin": [draft_league_id,
-                                      auction_league_id]}  # Exclude special league
-            },  # Match by player name
-            # Set or update points
-            {"$set": {"todayPoints":
-                      today_points, "points": total_points}},
-            upsert=False  # Only update existing documents, don't insert new ones
+                "playerId": player_id,
+                "status": "sold",
+                "leagueId": {"$nin": [DRAFT_LEAGUE_ID, AUCTION_LEAGUE_ID]}
+            },
+            {"$set": {"todayPoints": today_points, "points": total_points}},
+            upsert=False
         ))
 
-        for league_id in [draft_league_id, auction_league_id]:
+        for league_id in [DRAFT_LEAGUE_ID, AUCTION_LEAGUE_ID]:
             special_ops.append(UpdateOne(
                 {
-                    "player_name": player_name,
+                    "playerId": player_id,
                     "status": "sold",
                     "leagueId": league_id
                 },
                 {
                     "$set": {
                         "todayPoints": today_points,
-                        "points": total_points - transfer_points_map.get((league_id, player_name), 0)
+                        "points": total_points - transfer_points_map.get((league_id, player_id), 0)
                     }
                 },
                 upsert=False
@@ -243,18 +246,15 @@ def update_player_points_in_db(gameday_data):
 
     if bulk_operations:
         result = db.leagueplayers.bulk_write(bulk_operations)
-        print(
-            f"Bulk Update: Matched {result.matched_count} documents and modified {result.modified_count} documents.")
+        print(f"Bulk Update: Matched {result.matched_count} documents and modified {result.modified_count} documents.")
     else:
         print("No bulk operations to perform.")
 
     if special_ops:
         result = db.leagueplayers.bulk_write(special_ops)
-        print(
-            f"Special Update: Matched {result.matched_count} documents and modified {result.modified_count} documents.")
+        print(f"Special Update: Matched {result.matched_count} documents and modified {result.modified_count} documents.")
     else:
         print("No special operations to perform.")
-    # First, fetch all relevant players with their transferPoints from the special league
 
 
 def update_unsold_player_points_in_db():
@@ -264,30 +264,36 @@ def update_unsold_player_points_in_db():
     api_players = gameday_data["Data"]["Value"]["Players"]
     bulk_operations = []
 
+    # Build player_name -> _id map from master collection
+    player_name_to_id = {
+        p["player_name"]: p["_id"]
+        for p in db.players.find({}, {"player_name": 1})
+    }
+
     for player in api_players:
         player_name = player["Name"]
         today_points = player.get("GamedayPoints", 0)
         total_points = player.get("OverallPoints", 0)
+
+        player_id = player_name_to_id.get(player_name)
+        if not player_id:
+            continue
+
         print(player_name, today_points, total_points)
 
-        # Create a bulk update operation for each player
         bulk_operations.append(UpdateMany(
             {
-                "player_name": player_name,
+                "playerId": player_id,
                 "status": {"$ne": "sold"},
-                # League ID should be either "A" or "B"
-                "leagueId": {"$in": [ObjectId('67d4dd408786c3e1b4ee172a'), ObjectId('67da30b26a17f44a19c2241a')]}
-            },  # Match by player name
-            # Set or update points
-            {"$set": {"todayPoints":
-                      today_points, "points": total_points}},
-            upsert=False  # Only update existing documents, don't insert new ones
+                "leagueId": {"$in": [DRAFT_LEAGUE_ID, AUCTION_LEAGUE_ID]}
+            },
+            {"$set": {"todayPoints": today_points, "points": total_points}},
+            upsert=False
         ))
 
     if bulk_operations:
         result = db.leagueplayers.bulk_write(bulk_operations)
-        print(
-            f"Bulk Update: Matched {result.matched_count} documents and modified {result.modified_count} documents.")
+        print(f"Bulk Update: Matched {result.matched_count} documents and modified {result.modified_count} documents.")
     else:
         print("No bulk operations to perform.")
 
@@ -372,14 +378,11 @@ def fix_all_team_points_total_only():
 
 
 def fix_pbks_dc_game():
-    # Step 1: draft and auction league ids
-    draft_league_id = ObjectId('67da30b26a17f44a19c2241a')
-    auction_league_id = ObjectId('67d4dd408786c3e1b4ee172a')
-    league_ids = [draft_league_id, auction_league_id]
+    league_ids = [DRAFT_LEAGUE_ID, AUCTION_LEAGUE_ID]
 
     league_names = {
-        str(draft_league_id): "DRAFT LEAGUE",
-        str(auction_league_id): "AUCTION LEAGUE"
+        str(DRAFT_LEAGUE_ID): "DRAFT LEAGUE",
+        str(AUCTION_LEAGUE_ID): "AUCTION LEAGUE"
     }
 
     for league_id in league_ids:
@@ -397,12 +400,14 @@ def fix_pbks_dc_game():
             print(f"\n{team_name}")
             total_deduction = 0
             for player in players:
-                player_name = player["player_name"]
+                # Look up player_name from master via playerId
+                player_meta = db.players.find_one({"_id": player["playerId"]}, {"player_name": 1})
+                player_name = player_meta["player_name"] if player_meta else str(player["playerId"])
                 today_points = player["todayPoints"]
                 print(f"{player_name} - {today_points}")
                 total_deduction += today_points
 
-               # reduce today's Points from leagueplayers points and set today's points to 0
+                # reduce today's Points from leagueplayers points and set today's points to 0
                 db.leagueplayers.update_one(
                     {"_id": player["_id"]},
                     {"$set": {

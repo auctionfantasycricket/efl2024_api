@@ -520,9 +520,12 @@ def draftplayer(_id):
     result = playerCollection.update_one(filter, {"$set": updated_data})
 
     if updated_data.get('status', '').lower() == "sold":
+        # Merge master fields so update_owner_items has player_name, player_role, isOverseas
+        player_meta = db.players.find_one({"_id": player_data.get("playerId")})
+        player_data_merged = {**player_meta, **player_data} if player_meta else player_data
         owner_collection = db[owner_collection_name]
         update_owner_data(updated_data, owner_collection,
-                          player_data, league_id)
+                          player_data_merged, league_id)
 
     return json_util.dumps(result.raw_result)
 

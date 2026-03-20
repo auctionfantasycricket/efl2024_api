@@ -59,13 +59,22 @@ def generate_release_details():
 
 
 def drop_auction_player(input_player):
+    # Resolve player_name -> playerId via master collection
+    player_meta = db.players.find_one({"player_name": input_player})
+    if not player_meta:
+        print({"error": f"Player not found in master: {input_player}"})
+        return 0
+
     player_collection = db.leagueplayers
-    id_filter = {"player_name": input_player, "leagueId": leagueId}
+    id_filter = {"playerId": player_meta["_id"], "leagueId": leagueId}
     player_data = player_collection.find_one(id_filter)
 
     if not player_data:
-        print({"error": f"Player not found: {input_player}"})
+        print({"error": f"Player not found in league: {input_player}"})
         return 0
+
+    # Merge master fields so _drop_player_core has player_name, player_role, isOverseas
+    player_data_merged = {**player_meta, **player_data}
 
     owner_team = player_data.get("ownerTeam", "")
     owner_collection = db.teams
@@ -75,11 +84,11 @@ def drop_auction_player(input_player):
         print({"error": "Owner team not found"})
         return 0
 
-    bought_for = _drop_player_core(player_data, player_collection, id_filter, owner)
+    bought_for = _drop_player_core(player_data_merged, player_collection, id_filter, owner)
 
-    if not update_role_counts(owner, player_data.get("player_role", ""), -1):
+    if not update_role_counts(owner, player_meta.get("player_role", ""), -1):
         print("Role not found")
-    if player_data.get("isOverseas"):
+    if player_meta.get("isOverseas"):
         owner["fCount"] -= 1
 
     # Auction-specific: refund purse and recalculate maxBid
