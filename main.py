@@ -224,8 +224,8 @@ def delete_league():
 
         # Step 2: Remove leagueId from joinedLeagues array in users collection
         db.users.update_many(
-            {"joinedLeagues": str(league_id)},
-            {"$pull": {"joinedLeagues": str(league_id)}}
+            {"joinedLeagues": league_object_id},
+            {"$pull": {"joinedLeagues": league_object_id}}
         )
 
         # Step 3: Delete the league from leagues collection
@@ -356,7 +356,7 @@ def create_league():
         db.users.update_one(
             {"email": useremail},
             # Ensures no duplicates
-            {"$addToSet": {"joinedLeagues": str(league_id)}},
+            {"$addToSet": {"joinedLeagues": league_id}},
             upsert=True  # Creates user entry if not found
         )
 
@@ -381,7 +381,7 @@ def get_leagues_by_email():
         if not user or "joinedLeagues" not in user:
             return jsonify({"leagues": []}), 200
 
-        league_ids = [ObjectId(lid) for lid in user["joinedLeagues"]]
+        league_ids = user["joinedLeagues"]
 
         # Fetch league details from leagues collection
         leagues = list(db.leagues.find({"_id": {"$in": league_ids}}))
@@ -394,6 +394,27 @@ def get_leagues_by_email():
 
     except Exception as e:
         logging.error(f"Error fetching leagues: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/league/users', methods=['GET'])
+def get_league_users():
+    try:
+        league_id = request.args.get("leagueId")
+        if not league_id:
+            return jsonify({'error': 'leagueId is required'}), 400
+
+        league_object_id = ObjectId(league_id)
+        users = list(db.users.find(
+            {"joinedLeagues": league_object_id},
+            {"name": 1, "email": 1}
+        ))
+
+        names = [u.get("name") or u.get("email") for u in users]
+        return jsonify({"leagueId": league_id, "count": len(names), "users": names}), 200
+
+    except Exception as e:
+        logging.error(f"Error fetching league users: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 
@@ -415,13 +436,13 @@ def join_league():
             return jsonify({'error': 'User not found'}), 404
 
         # Check if the user has already joined the league
-        if "joinedLeagues" in user and league_id in user["joinedLeagues"]:
+        if "joinedLeagues" in user and league_object_id in user["joinedLeagues"]:
             return jsonify({'message': 'User already in league'}), 200
 
         # Add leagueId to the user's joinedLeagues array
         db.users.update_one(
             {"email": email},
-            {"$push": {"joinedLeagues": league_id}}
+            {"$push": {"joinedLeagues": league_object_id}}
         )
 
         return jsonify({"message": "User joined league successfully"}), 200
