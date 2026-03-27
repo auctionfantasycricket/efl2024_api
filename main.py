@@ -264,9 +264,9 @@ def add_team():
             "leagueId": ObjectId(league_id)
         }
 
-        # Add an array with 8 empty strings
+        # Add an array with 10 empty strings (one per draft round)
         if league_type and league_type.upper() == "DRAFT":
-            team_data["draftSequence"] = [""] * 8
+            team_data["draftSequence"] = [""] * 10
         result = db.teams.insert_one(team_data)
         return jsonify({"message": "Team added successfully", "teamId": str(result.inserted_id)}), 201
 
