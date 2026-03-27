@@ -52,20 +52,28 @@ def update_owner_items(owner_items, player_data):
 
 @draftapi_bp.route('/getrandomdraftplayer', methods=["GET"])
 def get_random_player():
-    collection_name = request.args.get(
-        'collectionName', 'eflDraft_playersCentral')
+    collection_name = request.args.get('collectionName', 'leagueplayers')
+    league_id = request.args.get('leagueId')
     collection = db[collection_name]
 
-    # Using aggregation to get a random unsold player
+    match_filter = {"status": "unsold"}
+    if league_id:
+        match_filter["leagueId"] = ObjectId(league_id)
+
     pipeline = [
-        {"$match": {"status": "unsold"}},
-        {"$sample": {"size": 1}}
+        {"$match": match_filter},
+        {"$sample": {"size": 1}},
+        {"$lookup": {"from": "players", "localField": "playerId", "foreignField": "_id", "as": "playerData"}},
+        {"$unwind": {"path": "$playerData", "preserveNullAndEmptyArrays": True}}
     ]
 
     player_data = list(collection.aggregate(pipeline))
 
     if player_data:
-        return json_util.dumps(player_data[0])
+        doc = player_data[0]
+        player_meta = doc.pop("playerData", {})
+        merged = {**player_meta, **doc}
+        return json_util.dumps(merged)
     else:
         return json_util.dumps("no unsold player found")
 
