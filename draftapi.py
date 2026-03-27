@@ -46,6 +46,9 @@ def update_owner_items(owner_items, player_data):
         if not name.strip():  # Check if the string is empty after stripping whitespace
             owner_items["draftSequence"][i] = player_data["player_name"]
             break  # Stop iterating after updating the first empty string
+    else:
+        # No empty slot found (draftSequence shorter than rounds) — append
+        owner_items["draftSequence"].append(player_data["player_name"])
 
     return owner_items
 
