@@ -410,8 +410,8 @@ def get_league_users():
             {"name": 1, "email": 1}
         ))
 
-        names = [u.get("name") or u.get("email") for u in users]
-        return jsonify({"leagueId": league_id, "count": len(names), "users": names}), 200
+        user_list = [{"id": str(u["_id"]), "name": u.get("name") or u.get("email")} for u in users]
+        return jsonify({"leagueId": league_id, "count": len(user_list), "users": user_list}), 200
 
     except Exception as e:
         logging.error(f"Error fetching league users: {str(e)}")
