@@ -5,6 +5,8 @@ from bson import ObjectId, json_util
 from datetime import datetime, timedelta
 from collections import deque
 import base64
+import threading
+from send_email import notify_waiver_saved
 
 
 draftapi_bp = Blueprint('draftapi', __name__)
@@ -492,6 +494,19 @@ def update_current_waiver_api(userId, teamId):
         )
 
         if result.modified_count > 0:
+            # Decode released players from base64 for email
+            out_raw = current_waiver.get('out', [])
+            released_players = [
+                base64.b64decode(p).decode('utf-8') if p else ""
+                for p in out_raw
+            ]
+            team = db.teams.find_one({'_id': ObjectId(teamId)}, {'teamName': 1})
+            team_name = team.get('teamName', '') if team else ''
+            timestamp = current_waiver['lastUpdatedTime']
+            threading.Thread(
+                target=notify_waiver_saved,
+                args=(teamId, team_name, user_name, timestamp, released_players)
+            ).start()
             return json_util.dumps({'message': 'Current waiver updated successfully'}), 200
         else:
             return json_util.dumps({'error': 'Team not found or no update needed'}), 404

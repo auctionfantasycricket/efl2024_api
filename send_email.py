@@ -35,6 +35,52 @@ def get_emails():
         return []
 
 
+def get_team_member_emails(team_id):
+    try:
+        user_teams = db.userteams.find({"teamId": ObjectId(team_id)})
+        user_ids = [ut["userId"] for ut in user_teams]
+        return [u["email"] for u in db.users.find({"_id": {"$in": user_ids}}) if u.get("email")]
+    except Exception as e:
+        print("❌ Failed to get team member emails:", e)
+        return []
+
+
+def notify_waiver_saved(team_id, team_name, updated_by, timestamp, released_players):
+    to_list = get_team_member_emails(team_id)
+    if not to_list:
+        print("⚠️ No emails found for team:", team_name)
+        return
+
+    players_text = "\n".join(f"- {p}" for p in released_players if p)
+    players_html = "".join(f"<li style='margin-bottom:4px'>{p}</li>" for p in released_players if p)
+
+    subject = f"[{team_name}] Release preferences saved"
+
+    text_body = (
+        f"Hi,\n\n"
+        f"{updated_by} saved {team_name}'s release preferences on {timestamp} PST.\n\n"
+        f"Players selected to release:\n{players_text}\n\n"
+        f"Visit Team Hub to review:\nhttps://www.auctionfantasycricket.com/#/teamhub\n\n"
+        f"Thanks,\nAuction Fantasy Cricket Team"
+    )
+
+    html_body = f"""
+<div style="font-family: Arial, sans-serif; max-width: 500px; margin: 0 auto; padding: 20px;">
+  <h2 style="color: #1a1a2e;">🏏 Release Preferences Saved</h2>
+  <p>Hi,</p>
+  <p><strong>{updated_by}</strong> saved <strong>{team_name}</strong>'s release preferences on <strong>{timestamp} PST</strong>.</p>
+  <h3 style="color: #444;">Players Selected to Release:</h3>
+  <ul>{players_html}</ul>
+  <a href="https://www.auctionfantasycricket.com/#/teamhub"
+     style="display:inline-block; margin-top:12px; padding:10px 20px; background:#1890ff; color:white; text-decoration:none; border-radius:4px;">
+    View Team Hub
+  </a>
+  <p style="margin-top:20px; font-size:12px; color:#999;">Auction Fantasy Cricket Team</p>
+</div>
+"""
+    send_email(subject, text_body, html_body, to_list)
+
+
 def send_email(subject, text_body, html_body, to_list):
     message = MIMEMultipart("alternative")
     message["Subject"] = subject
