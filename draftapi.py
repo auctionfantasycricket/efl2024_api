@@ -62,9 +62,10 @@ def get_random_player():
 
     pipeline = [
         {"$match": match_filter},
-        {"$sample": {"size": 1}},
         {"$lookup": {"from": "players", "localField": "playerId", "foreignField": "_id", "as": "playerData"}},
-        {"$unwind": {"path": "$playerData", "preserveNullAndEmptyArrays": True}}
+        {"$unwind": {"path": "$playerData", "preserveNullAndEmptyArrays": True}},
+        {"$sort": {"playerData.rank": 1}},
+        {"$limit": 1}
     ]
 
     player_data = list(collection.aggregate(pipeline))
