@@ -149,18 +149,19 @@ def validate_waiver_data(current_waiver):
     return True, ""
 
 
-def _violated_rule(counts):
+def _violated_rules(counts):
+    rules = []
     if counts['batCount'] < 2:
-        return 'batters (min 2)'
+        rules.append('batters (min 2)')
     if counts['ballCount'] < 2:
-        return 'bowlers (min 2)'
+        rules.append('bowlers (min 2)')
     if counts['arCount'] < 2:
-        return 'all-rounders (min 2)'
+        rules.append('all-rounders (min 2)')
     if counts['fCount'] < 1:
-        return 'overseas (min 1)'
+        rules.append('overseas (min 1)')
     if counts['fCount'] > 3:
-        return 'overseas (max 3)'
-    return None
+        rules.append('overseas (max 3)')
+    return rules
 
 
 def validate_squad_composition(team_id, current_waiver):
@@ -219,9 +220,9 @@ def validate_squad_composition(team_id, current_waiver):
         elif pick_role == 'ALL_ROUNDER': sim['arCount']  += 1
         if pick_meta.get('isOverseas'): sim['fCount']    += 1
 
-        rule = _violated_rule(sim)
-        if rule:
-            return False, f"Can't replace {out_name} with {in_name}, breaks {rule} requirement"
+        rules = _violated_rules(sim)
+        if rules:
+            return False, f"Can't replace {out_name} with {in_name}, breaks {', '.join(rules)} requirement"
 
     return True, ""
 
