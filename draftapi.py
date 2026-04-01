@@ -182,6 +182,8 @@ def validate_squad_composition(team_id, current_waiver):
     in_raw  = current_waiver.get('in', [])
     out_raw = current_waiver.get('out', [])
 
+    errors = []
+
     for i in range(len(in_raw)):
         out_b64 = out_raw[i]
         in_b64  = in_raw[i]
@@ -193,7 +195,8 @@ def validate_squad_composition(team_id, current_waiver):
             out_name = base64.b64decode(out_b64).decode('utf-8')
             in_name  = base64.b64decode(in_b64).decode('utf-8')
         except Exception:
-            return False, f"Invalid encoding in pair {i + 1}"
+            errors.append(f"Pair {i + 1}: invalid encoding")
+            continue
 
         if not out_name or not in_name:
             continue
@@ -202,27 +205,32 @@ def validate_squad_composition(team_id, current_waiver):
         pick_meta = db.players.find_one({'player_name': in_name},  {'player_role': 1, 'isOverseas': 1})
 
         if not drop_meta:
-            return False, f"Player '{out_name}' not found"
+            errors.append(f"Player '{out_name}' not found")
+            continue
         if not pick_meta:
-            return False, f"Player '{in_name}' not found"
+            errors.append(f"Player '{in_name}' not found")
+            continue
 
         sim = base_counts.copy()
 
         drop_role = drop_meta['player_role'].upper()
-        if drop_role == 'BATTER':       sim['batCount']  -= 1
-        elif drop_role == 'BOWLER':     sim['ballCount'] -= 1
-        elif drop_role == 'ALL_ROUNDER': sim['arCount']  -= 1
-        if drop_meta.get('isOverseas'): sim['fCount']    -= 1
+        if drop_role == 'BATTER':        sim['batCount']  -= 1
+        elif drop_role == 'BOWLER':      sim['ballCount'] -= 1
+        elif drop_role == 'ALL_ROUNDER': sim['arCount']   -= 1
+        if drop_meta.get('isOverseas'):  sim['fCount']    -= 1
 
         pick_role = pick_meta['player_role'].upper()
-        if pick_role == 'BATTER':       sim['batCount']  += 1
-        elif pick_role == 'BOWLER':     sim['ballCount'] += 1
-        elif pick_role == 'ALL_ROUNDER': sim['arCount']  += 1
-        if pick_meta.get('isOverseas'): sim['fCount']    += 1
+        if pick_role == 'BATTER':        sim['batCount']  += 1
+        elif pick_role == 'BOWLER':      sim['ballCount'] += 1
+        elif pick_role == 'ALL_ROUNDER': sim['arCount']   += 1
+        if pick_meta.get('isOverseas'):  sim['fCount']    += 1
 
         rules = _violated_rules(sim)
         if rules:
-            return False, f"Can't replace {out_name} with {in_name}, breaks {', '.join(rules)} requirement"
+            errors.append(f"Can't replace {out_name} with {in_name}, breaks {', '.join(rules)} requirement")
+
+    if errors:
+        return False, errors
 
     return True, ""
 
@@ -541,9 +549,9 @@ def update_current_waiver_api(userId, teamId):
             return json_util.dumps({'error': validation_message}), 400
 
         # Validate squad composition rules for each pair
-        is_valid_comp, comp_error = validate_squad_composition(teamId, current_waiver)
+        is_valid_comp, comp_errors = validate_squad_composition(teamId, current_waiver)
         if not is_valid_comp:
-            return json_util.dumps({'error': comp_error}), 400
+            return json_util.dumps({'errors': comp_errors}), 400
 
         # Fetch user name from users collection
         user = db.users.find_one({'_id': ObjectId(userId)}, {'name': 1})
