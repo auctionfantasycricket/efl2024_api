@@ -149,6 +149,83 @@ def validate_waiver_data(current_waiver):
     return True, ""
 
 
+def _violated_rule(counts):
+    if counts['batCount'] < 2:
+        return 'batters (min 2)'
+    if counts['ballCount'] < 2:
+        return 'bowlers (min 2)'
+    if counts['arCount'] < 2:
+        return 'all-rounders (min 2)'
+    if counts['fCount'] < 1:
+        return 'overseas (min 1)'
+    if counts['fCount'] > 3:
+        return 'overseas (max 3)'
+    return None
+
+
+def validate_squad_composition(team_id, current_waiver):
+    team = db.teams.find_one(
+        {'_id': ObjectId(team_id)},
+        {'batCount': 1, 'ballCount': 1, 'arCount': 1, 'fCount': 1}
+    )
+    if not team:
+        return False, "Team not found"
+
+    base_counts = {
+        'batCount':  team.get('batCount', 0),
+        'ballCount': team.get('ballCount', 0),
+        'arCount':   team.get('arCount', 0),
+        'fCount':    team.get('fCount', 0),
+    }
+
+    in_raw  = current_waiver.get('in', [])
+    out_raw = current_waiver.get('out', [])
+
+    for i in range(len(in_raw)):
+        out_b64 = out_raw[i]
+        in_b64  = in_raw[i]
+
+        if not out_b64 or not in_b64:
+            continue
+
+        try:
+            out_name = base64.b64decode(out_b64).decode('utf-8')
+            in_name  = base64.b64decode(in_b64).decode('utf-8')
+        except Exception:
+            return False, f"Invalid encoding in pair {i + 1}"
+
+        if not out_name or not in_name:
+            continue
+
+        drop_meta = db.players.find_one({'player_name': out_name}, {'player_role': 1, 'isOverseas': 1})
+        pick_meta = db.players.find_one({'player_name': in_name},  {'player_role': 1, 'isOverseas': 1})
+
+        if not drop_meta:
+            return False, f"Player '{out_name}' not found"
+        if not pick_meta:
+            return False, f"Player '{in_name}' not found"
+
+        sim = base_counts.copy()
+
+        drop_role = drop_meta['player_role'].upper()
+        if drop_role == 'BATTER':       sim['batCount']  -= 1
+        elif drop_role == 'BOWLER':     sim['ballCount'] -= 1
+        elif drop_role == 'ALL_ROUNDER': sim['arCount']  -= 1
+        if drop_meta.get('isOverseas'): sim['fCount']    -= 1
+
+        pick_role = pick_meta['player_role'].upper()
+        if pick_role == 'BATTER':       sim['batCount']  += 1
+        elif pick_role == 'BOWLER':     sim['ballCount'] += 1
+        elif pick_role == 'ALL_ROUNDER': sim['arCount']  += 1
+        if pick_meta.get('isOverseas'): sim['fCount']    += 1
+
+        rule = _violated_rule(sim)
+        if rule:
+            return False, f"Can't replace {out_name} with {in_name}, breaks {rule} requirement"
+
+    return True, ""
+
+
 def decrypt_arr(arr):
     outArr = []
     # for el in arr:
@@ -461,6 +538,11 @@ def update_current_waiver_api(userId, teamId):
         is_valid, validation_message = validate_waiver_data(current_waiver)
         if not is_valid:
             return json_util.dumps({'error': validation_message}), 400
+
+        # Validate squad composition rules for each pair
+        is_valid_comp, comp_error = validate_squad_composition(teamId, current_waiver)
+        if not is_valid_comp:
+            return json_util.dumps({'error': comp_error}), 400
 
         # Fetch user name from users collection
         user = db.users.find_one({'_id': ObjectId(userId)}, {'name': 1})
