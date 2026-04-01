@@ -120,8 +120,8 @@ def fetch_api_data(matchid):
         "lang": "en",
         "tourgamedayId": matchid,
         "teamgamedayId": matchid,
-        "liveVersion": 14,
-        "announcedVersion": "03222025144453"
+        "liveVersion": 16,
+        "announcedVersion": "03282026145309"
     }
 
     response = requests.get(url, params=params)

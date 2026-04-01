@@ -25,7 +25,7 @@ except Exception as e:
 # Shared constants
 # ---------------------------------------------------------------------------
 
-DRAFT_LEAGUE_ID = ObjectId('67da30b26a17f44a19c2241a')
+DRAFT_LEAGUE_ID = ObjectId('69bb53f6d126798f01a796c6')
 AUCTION_LEAGUE_ID = ObjectId('69b8f3329617ab57b73fe0f2')
 
 ASSOCIATE_NATIONS = [

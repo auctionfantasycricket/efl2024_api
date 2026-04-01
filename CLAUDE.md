@@ -3,7 +3,7 @@
 ## Architecture
 - **Backend:** Python/Flask API (`efl2024_api/`) — connects to MongoDB Atlas
 - **Production API:** https://continuous-jannelle-auctionfantasy-953e5c9b.koyeb.app
-- **Frontend:** React/Vite (`~/Documents/efl2025_first/`) — fetches data via Flask API
+- **Frontend:** React/Vite (`~/Documents/efl2024_first/`) — fetches data via Flask API
 - **DB:** MongoDB Atlas, active DB is `afc2026` (set in `config.py` line 17)
 
 ## DB Skills (slash commands)
@@ -24,7 +24,7 @@
 - `waivers.py` — weekly waiver processing
 - `liveupdates.py` — point updates from ESPN API
 
-## Key Frontend Files (efl2025_first/src/)
+## Key Frontend Files (efl2024_first/src/)
 - `Players.jsx` — player browser grid
 - `Teams.jsx` — team rosters grouped by owner
 - `Auction.jsx` / `Auction_New.jsx` — auction UI

@@ -144,10 +144,8 @@ def get_team_owner(email):
 
 
 def validate_waiver_data(current_waiver):
-    if len(current_waiver.get('in', [])) != 4:
-        return False, "The 'in' array must contain exactly 4 elements."
-    if len(current_waiver.get('out', [])) != 2:
-        return False, "The 'out' array must contain exactly 2 elements."
+    if len(current_waiver.get('in', [])) != len(current_waiver.get('out', [])):
+        return False, "The 'in' and 'out' arrays must have the same number of elements."
     return True, ""
 
 
