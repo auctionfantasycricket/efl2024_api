@@ -604,6 +604,78 @@ def update_current_waiver_api(userId, teamId):
         return json_util.dumps({'error': str(e)}), 500
 
 
+@draftapi_bp.route('/submitWaiverPreferences/<userId>/<teamId>', methods=['POST'])
+def submit_waiver_preferences(userId, teamId):
+    try:
+        # Draft-only deadline check
+        global_data = db.global_data.find_one({}, {'nextDraftDeadline': 1})
+        if not global_data or 'nextDraftDeadline' not in global_data:
+            return json_util.dumps({'error': 'nextDraftDeadline not set in global data'}), 400
+        if not is_before_deadline(global_data['nextDraftDeadline']):
+            return json_util.dumps({'error': 'Cannot update waiver after the nextDraftDeadline'}), 400
+
+        current_waiver = request.json.get('currentWaiver')
+
+        # Validate currentWaiver data
+        is_valid, validation_message = validate_waiver_data(current_waiver)
+        if not is_valid:
+            return json_util.dumps({'error': validation_message}), 400
+
+        # Validate squad composition rules for each pair
+        is_valid_comp, comp_errors = validate_squad_composition(teamId, current_waiver)
+        if not is_valid_comp:
+            return json_util.dumps({'errors': comp_errors}), 400
+
+        # Fetch user name from users collection
+        user = db.users.find_one({'_id': ObjectId(userId)}, {'name': 1})
+        if not user:
+            return json_util.dumps({'error': 'User not found'}), 404
+        user_name = user['name']
+
+        # Get current UTC time and convert to PST (UTC-7)
+        now_utc = datetime.utcnow()
+        pst_offset = timedelta(hours=-7)
+        now_pst = now_utc + pst_offset
+
+        # Format the time
+        current_waiver['lastUpdatedBy'] = user_name
+        current_waiver['lastUpdatedTime'] = now_pst.strftime('%dth %B at %I:%M:%S %p')
+
+        # Update the team object in db.teams
+        result = db.teams.update_one(
+            {'_id': ObjectId(teamId)},
+            {'$set': {'currentWaiver': current_waiver}}
+        )
+
+        # Add the current waiver to teamwaivers
+        db.teamwaivers.update_one(
+            {"teamId": ObjectId(teamId)},
+            {"$push": {"waiverHistory": current_waiver}},
+            upsert=True
+        )
+
+        if result.modified_count > 0:
+            # Decode released players from base64 for email
+            out_raw = current_waiver.get('out', [])
+            released_players = [
+                base64.b64decode(p).decode('utf-8') if p else ""
+                for p in out_raw
+            ]
+            team = db.teams.find_one({'_id': ObjectId(teamId)}, {'teamName': 1})
+            team_name = team.get('teamName', '') if team else ''
+            timestamp = current_waiver['lastUpdatedTime']
+            threading.Thread(
+                target=notify_waiver_saved,
+                args=(teamId, team_name, user_name, timestamp, released_players)
+            ).start()
+            return json_util.dumps({'message': 'Current waiver updated successfully'}), 200
+        else:
+            return json_util.dumps({'error': 'Team not found or no update needed'}), 404
+
+    except Exception as e:
+        return json_util.dumps({'error': str(e)}), 500
+
+
 @draftapi_bp.route('/draftplayer/<_id>', methods=['PUT'])
 def draftplayer(_id):
     updated_data = request.get_json()
