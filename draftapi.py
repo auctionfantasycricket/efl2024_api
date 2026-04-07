@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from collections import deque
 import base64
 import threading
-from send_email import notify_waiver_saved
+from send_email import notify_waiver_saved, notify_draft_waiver_saved
 
 
 draftapi_bp = Blueprint('draftapi', __name__)
@@ -655,18 +655,23 @@ def submit_waiver_preferences(userId, teamId):
         )
 
         if result.modified_count > 0:
-            # Decode released players from base64 for email
-            out_raw = current_waiver.get('out', [])
-            released_players = [
-                base64.b64decode(p).decode('utf-8') if p else ""
-                for p in out_raw
-            ]
+            # Decode both in and out from base64 and build pairs
+            def decode(val):
+                try:
+                    return base64.b64decode(val).decode('utf-8') if val else ""
+                except Exception:
+                    return val or ""
+
+            in_decoded = [decode(p) for p in current_waiver.get('in', [])]
+            out_decoded = [decode(p) for p in current_waiver.get('out', [])]
+            pairs = list(zip(in_decoded, out_decoded))
+
             team = db.teams.find_one({'_id': ObjectId(teamId)}, {'teamName': 1})
             team_name = team.get('teamName', '') if team else ''
             timestamp = current_waiver['lastUpdatedTime']
             threading.Thread(
-                target=notify_waiver_saved,
-                args=(teamId, team_name, user_name, timestamp, released_players)
+                target=notify_draft_waiver_saved,
+                args=(teamId, team_name, user_name, timestamp, pairs)
             ).start()
             return json_util.dumps({'message': 'Current waiver updated successfully'}), 200
         else:

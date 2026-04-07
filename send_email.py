@@ -81,6 +81,61 @@ def notify_waiver_saved(team_id, team_name, updated_by, timestamp, released_play
     send_email(subject, text_body, html_body, to_list)
 
 
+def notify_draft_waiver_saved(team_id, team_name, updated_by, timestamp, pairs):
+    to_list = get_team_member_emails(team_id)
+    if not to_list:
+        print("⚠️ No emails found for team:", team_name)
+        return
+
+    # pairs is a list of (pick, drop) tuples
+    text_rows = "\n".join(
+        f"  {i+1}. Pick: {pick or '—'}  |  Drop: {drop or '—'}"
+        for i, (pick, drop) in enumerate(pairs)
+    )
+    html_rows = "".join(
+        f"""<tr>
+          <td style='padding:6px 12px;border:1px solid #ddd;text-align:center'>{i+1}</td>
+          <td style='padding:6px 12px;border:1px solid #ddd;color:#1a7f37'>{pick or '—'}</td>
+          <td style='padding:6px 12px;border:1px solid #ddd;color:#cf1322'>{drop or '—'}</td>
+        </tr>"""
+        for i, (pick, drop) in enumerate(pairs)
+    )
+
+    subject = f"[{team_name}] Waiver preferences saved"
+
+    text_body = (
+        f"Hi,\n\n"
+        f"{updated_by} saved {team_name}'s waiver preferences on {timestamp} PST.\n\n"
+        f"Saved pairs:\n{text_rows}\n\n"
+        f"Visit Team Hub to review:\nhttps://www.auctionfantasycricket.com/#/teamhub\n\n"
+        f"Thanks,\nAuction Fantasy Cricket Team"
+    )
+
+    html_body = f"""
+<div style="font-family: Arial, sans-serif; max-width: 560px; margin: 0 auto; padding: 20px;">
+  <h2 style="color: #1a1a2e;">🏏 Waiver Preferences Saved</h2>
+  <p>Hi,</p>
+  <p><strong>{updated_by}</strong> saved <strong>{team_name}</strong>'s waiver preferences on <strong>{timestamp} PST</strong>.</p>
+  <table style="border-collapse:collapse; width:100%; margin-top:12px;">
+    <thead>
+      <tr style="background:#f0f0f0;">
+        <th style="padding:6px 12px;border:1px solid #ddd;">#</th>
+        <th style="padding:6px 12px;border:1px solid #ddd;">Pick (IN)</th>
+        <th style="padding:6px 12px;border:1px solid #ddd;">Drop (OUT)</th>
+      </tr>
+    </thead>
+    <tbody>{html_rows}</tbody>
+  </table>
+  <a href="https://www.auctionfantasycricket.com/#/teamhub"
+     style="display:inline-block; margin-top:16px; padding:10px 20px; background:#1890ff; color:white; text-decoration:none; border-radius:4px;">
+    View Team Hub
+  </a>
+  <p style="margin-top:20px; font-size:12px; color:#999;">Auction Fantasy Cricket Team</p>
+</div>
+"""
+    send_email(subject, text_body, html_body, to_list)
+
+
 def send_email(subject, text_body, html_body, to_list):
     message = MIMEMultipart("alternative")
     message["Subject"] = subject
