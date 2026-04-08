@@ -4,7 +4,7 @@ from config import db, DRAFT_LEAGUE_ID
 from utils import push_waiver_to_history_and_reset
 import base64
 import binascii
-from flask import Blueprint, jsonify
+from flask import Blueprint, jsonify, request
 import add_drop
 
 
@@ -141,7 +141,8 @@ def generate_waiver_results(waiver_order, generateEmpty=True):
 
 
 @waivers_bp.route('/final_generate_waiver_results', methods=['POST'])
-def final_generate_waiver_results(generateEmpty=True):
+def final_generate_waiver_results():
+    generateEmpty = request.args.get('generateEmpty', 'true').lower() == 'true'
     waiverResults = generate_waiver_process(
         str(DRAFT_LEAGUE_ID), generateEmpty)
     result = db.leagues.update_one(
