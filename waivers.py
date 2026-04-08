@@ -2,26 +2,24 @@ from bson.objectid import ObjectId
 from bson import ObjectId
 from config import db, DRAFT_LEAGUE_ID
 from utils import push_waiver_to_history_and_reset
-import random
 import base64
 import binascii
 from flask import Blueprint, jsonify
 import add_drop
 
 
-# Existing functions...
 waivers_bp = Blueprint('waivers', __name__)
 
 
 def get_teams_sorted_by_rank(league_id):
-    """Fetch teams in the league and sort them by rank in descending order (lowest rank first)."""
+    """Fetch teams in the league sorted by rank descending (lowest rank first)."""
     teams = list(db.teams.find(
         {"leagueId": ObjectId(league_id)}).sort("rank", -1))
     return teams
 
 
-def generate_waiver_order(teams, rounds=4):
-    """Generate the waiver order for the given number of rounds."""
+def generate_waiver_order(teams, rounds):
+    """Generate the rotating waiver order for the given number of rounds."""
     order = []
     for i in range(rounds):
         rotated_teams = teams[i:] + teams[:i]
@@ -29,191 +27,15 @@ def generate_waiver_order(teams, rounds=4):
     return order
 
 
-def is_valid(pick, drop, taken_players, unswappable_players, round_num):
-    """Validate the pick and drop logic based on different conditions."""
-    if not pick and not drop:
-        return "ND", "No Drop"  # No drop provided
-    if not pick:
-        return "NP", "No Pick"  # No pick provided
-    if pick in taken_players:
-        return "PT", "Pick Taken"  # Player already taken
-    if pick in unswappable_players or drop in unswappable_players:
-        return "SW", "Unswappable"  # Player is unswappable
-    if round_num == 4 and drop:
-        return "AR", "All Replaced"  # All players replaced in the last round
-    return "SW", "Success"  # Swap valid
-
-
-def get_random_players():
-    """Generate random player names for testing."""
-    return [f"Player{num}" for num in range(1, 21)]
-
-
-def get_current_waivers(teams, league_id):
-    """Extract current waiver picks and drops dynamically for each team from DB."""
-    picks = []
-    for team in teams:
-        # Fetch the team from the database using teamName and leagueId
-        team_data = db.teams.find_one(
-            {"teamName": team["teamName"], "leagueId": ObjectId(league_id)})
-
-        # Default values in case the currentWaiver object is not present
-        current_waiver_in = []
-        current_waiver_out = []
-
-        # Check if the currentWaiver exists and has the required fields
-        if team_data and "currentWaiver" in team_data:
-            current_waiver_in = team_data["currentWaiver"].get("in", [])
-            current_waiver_out = team_data["currentWaiver"].get("out", [])
-
-        # If the arrays are smaller than expected, pad with empty values
-        current_waiver_in = current_waiver_in[:4]  # Limit to 4 "in" players
-        current_waiver_out = current_waiver_out[:2]  # Limit to 2 "out" players
-
-        pick_data = {
-            "team": team["teamName"],
-            "drop_index": 0,  # Tracks the index of the drop
-            "pick_index": 0,  # Tracks the index of the pick
-            "drop": current_waiver_out[0] if current_waiver_out else "",
-            "pick": current_waiver_in[0] if current_waiver_in else "",
-            "status": "",
-            "message": ""
-        }
-        picks.append(pick_data)
-
-    return picks
-
-
-def generate_waiver_process(league_id,  generateEmpty=True, rounds=4):
-    """Main function to generate waiver process based on league ID."""
-    teams = get_teams_sorted_by_rank(league_id)
-    waiver_order = generate_waiver_order(teams, rounds)
-    print(waiver_order)
-    results = generate_waiver_results(waiver_order, generateEmpty)
-
-    return results
-
-
 def get_waiver_dict(leagueId):
-
     waiver_dict = {}
-
-    # Fetch all teams in the given league
     teams = db.teams.find({"leagueId": ObjectId(leagueId)}, {
                           "teamName": 1, "currentWaiver": 1, "_id": 0})
-
-    # Populate the dictionary
     for team in teams:
         team_name = team["teamName"]
-        current_waiver = team.get(
-            "currentWaiver", {"out": ['', ''], "in": ['', '', '', '']})
+        current_waiver = team.get("currentWaiver", {"out": [], "in": []})
         waiver_dict[team_name] = current_waiver
-        # print('--------', team_name)
-        for out1 in current_waiver['out']:
-            if out1 != "":
-                out1 = base64.b64decode(out1).decode('utf-8')
-            # print('outtt', out1)
-        for out1 in current_waiver['in']:
-            if out1 != "":
-                out1 = base64.b64decode(out1).decode('utf-8')
-            # print('innn', out1)
-
     return waiver_dict
-
-
-def swap_possible(owner_items, nextdrop_data, nextpick_data):
-    updated_counts = owner_items.copy()
-
-    drop_role = nextdrop_data["player_role"].upper()
-    if drop_role == "BATTER":
-        updated_counts["batCount"] -= 1
-    elif drop_role == "BOWLER":
-        updated_counts["ballCount"] -= 1
-    elif drop_role == "ALL_ROUNDER":
-        updated_counts["arCount"] -= 1
-
-    if nextdrop_data["isOverseas"]:
-        updated_counts["fCount"] -= 1
-
-    pick_role = nextpick_data["player_role"].upper()
-    if pick_role == "BATTER":
-        updated_counts["batCount"] += 1
-    elif pick_role == "BOWLER":
-        updated_counts["ballCount"] += 1
-    elif pick_role == "ALL_ROUNDER":
-        updated_counts["arCount"] += 1
-
-    if nextpick_data["isOverseas"]:
-        updated_counts["fCount"] += 1
-
-    if (
-        updated_counts["batCount"] < 2 or
-        updated_counts["ballCount"] < 2 or
-        updated_counts["arCount"] < 2 or
-        updated_counts["fCount"] < 1 or
-        updated_counts["fCount"] > 3
-    ):
-        return "failure", "Restriction violated"
-
-    return "success", "Swap possible"
-
-
-pickedplayers = set()
-
-
-def get_result(league_id, nextdrop, nextpick, team):
-    if not nextpick:
-        return "", "No player provided in preference"
-    if not nextdrop:
-        return "", "No player provided in drop"
-
-    # Resolve player names to playerIds via master collection
-    nextdrop_meta = db.players.find_one({"player_name": nextdrop})
-    nextpick_meta = db.players.find_one({"player_name": nextpick})
-
-    if not nextdrop_meta or not nextpick_meta:
-        return "failure", "One or both players not found in master"
-
-    nextdrop_lp = db.leagueplayers.find_one(
-        {"leagueId": ObjectId(league_id), "playerId": nextdrop_meta["_id"]}
-    )
-    nextpick_lp = db.leagueplayers.find_one(
-        {"leagueId": ObjectId(league_id), "playerId": nextpick_meta["_id"]}
-    )
-
-    if not nextdrop_lp or not nextpick_lp:
-        return "failure", "One or both players not found in league"
-
-    # Merge master fields so swap_possible has player_role and isOverseas
-    nextdrop_data = {**nextdrop_meta, **nextdrop_lp}
-    nextpick_data = {**nextpick_meta, **nextpick_lp}
-
-    team_data = db.teams.find_one(
-        {"leagueId": ObjectId(league_id), "teamName": team},
-        {
-            "batCount": 1,
-            "ballCount": 1,
-            "fCount": 1,
-            "arCount": 1,
-            "_id": 0
-        }
-    )
-
-    if not team_data:
-        return "failure", "Team or owner data not found"
-
-    owner_items = {
-        "batCount": team_data.get("batCount", 0),
-        "ballCount": team_data.get("ballCount", 0),
-        "fCount": team_data.get("fCount", 0),
-        "arCount": team_data.get("arCount", 0)
-    }
-    if nextpick in pickedplayers:
-        return 'failure', 'player was already picked'
-    status, message = swap_possible(owner_items, nextdrop_data, nextpick_data)
-    if status == "success":
-        pickedplayers.add(nextpick)
-    return status, message
 
 
 def do_the_trasnfers(nextdrop, nextpick, team):
@@ -221,10 +43,30 @@ def do_the_trasnfers(nextdrop, nextpick, team):
     add_drop.drop_draft_player(nextdrop, str(DRAFT_LEAGUE_ID))
 
 
+def generate_waiver_process(league_id, generateEmpty=True):
+    """Main function to generate waiver process based on league ID."""
+    teams = get_teams_sorted_by_rank(league_id)
+
+    # Rounds = max number of pairs any team has saved
+    rounds = max(
+        (len(team.get("currentWaiver", {}).get("in", [])) for team in teams),
+        default=1
+    )
+    if rounds == 0:
+        rounds = 1
+
+    waiver_order = generate_waiver_order(teams, rounds)
+    print(waiver_order)
+    results = generate_waiver_results(waiver_order, generateEmpty)
+    return results
+
+
 def generate_waiver_results(waiver_order, generateEmpty=True):
     waiver_results = []
-    dropped_count = {}  # Tracks how many players have been dropped per team
     waiver_dict = get_waiver_dict(str(DRAFT_LEAGUE_ID))
+    swapped_teams = set()   # teams that completed their 1 swap
+    picked_players = set()  # players already picked this run
+
     for round_num, order in enumerate(waiver_order, start=1):
         round_result = {
             "round": round_num,
@@ -232,105 +74,91 @@ def generate_waiver_results(waiver_order, generateEmpty=True):
             "picks": []
         }
 
-        # Example pick logic (replace with actual logic if needed)
         for team in order:
-            nextdrop = "Your Worst performer"
-            nextpick = "Your next superstar"
-            status = ""
-            message = ""
             if not generateEmpty:
-                drop_index = dropped_count.get(team, 0)
+                # Skip teams that already had a successful swap
+                if team in swapped_teams:
+                    round_result["picks"].append({
+                        "team": team,
+                        "drop": "",
+                        "pick": "",
+                        "status": "",
+                        "message": "Already swapped"
+                    })
+                    continue
 
-                nextdrop = '' if (
-                    drop_index == 2) else waiver_dict[team]['out'][drop_index]
-                nextpick = waiver_dict[team]['in'][round_num-1]
+                pair_index = round_num - 1
+                team_waiver = waiver_dict.get(team, {"in": [], "out": []})
+                in_arr = team_waiver.get("in", [])
+                out_arr = team_waiver.get("out", [])
+
+                raw_pick = in_arr[pair_index] if pair_index < len(in_arr) else ""
+                raw_drop = out_arr[pair_index] if pair_index < len(out_arr) else ""
+
                 try:
-                    if nextdrop != "":
-                        nextdrop = base64.b64decode(nextdrop).decode('utf-8')
-                    if nextpick != "":
-                        nextpick = base64.b64decode(nextpick).decode('utf-8')
+                    nextpick = base64.b64decode(raw_pick).decode('utf-8') if raw_pick else ""
+                    nextdrop = base64.b64decode(raw_drop).decode('utf-8') if raw_drop else ""
                 except binascii.Error:
-                    print('pppp', team, nextpick, nextdrop)
+                    print('decode error', team, raw_pick, raw_drop)
+                    nextpick = raw_pick
+                    nextdrop = raw_drop
 
-                # print(';;;; ', team, round_num, drop_index, nextdrop, nextpick)
-                # get_result(nextdrop, nextpick, team
-                if drop_index == 2:
-                    status, message = "", "All Transferred done"
+                if not nextpick:
+                    status, message = "", "No pick"
+                elif not nextdrop:
+                    status, message = "", "No drop"
+                elif nextpick in picked_players:
+                    status, message = "failure", "Player already taken"
                 else:
-                    status, message = get_result(
-                        str(DRAFT_LEAGUE_ID), nextdrop, nextpick, team)
-                if status == "success":
-                    dropped_count[team] = drop_index+1
                     do_the_trasnfers(nextdrop, nextpick, team)
+                    status, message = "success", "Swap done"
+                    swapped_teams.add(team)
+                    picked_players.add(nextpick)
 
-            round_result["picks"].append({
-                "team": team,
-                "drop": nextdrop,  # Placeholder
-                "pick": nextpick,  # Placeholder
-                "status": status,
-                "message": message
-            })
+                round_result["picks"].append({
+                    "team": team,
+                    "drop": nextdrop,
+                    "pick": nextpick,
+                    "status": status,
+                    "message": message
+                })
+            else:
+                round_result["picks"].append({
+                    "team": team,
+                    "drop": "Your Worst performer",
+                    "pick": "Your next superstar",
+                    "status": "",
+                    "message": ""
+                })
 
         waiver_results.append(round_result)
+
+        # Early exit once every team has swapped
+        if not generateEmpty and len(swapped_teams) >= len(waiver_dict):
+            break
 
     return waiver_results
 
 
 @waivers_bp.route('/final_generate_waiver_results', methods=['POST'])
 def final_generate_waiver_results(generateEmpty=True):
-    # Example usage:
     waiverResults = generate_waiver_process(
         str(DRAFT_LEAGUE_ID), generateEmpty)
-    # Call update_one properly by using parentheses
     result = db.leagues.update_one(
-        # Find the league by its ID
         {"_id": DRAFT_LEAGUE_ID},
-        # Upsert the waiverResults field
         {"$set": {"waiverResults": waiverResults}},
-        upsert=True  # Ensures the document is created if not found
+        upsert=True
     )
     if not generateEmpty:
         push_waiver_to_history_and_reset(str(DRAFT_LEAGUE_ID))
-    # Print update result details
-    print(
-        f"Matched: {result.matched_count}, Modified: {result.modified_count}")
+
+    print(f"Matched: {result.matched_count}, Modified: {result.modified_count}")
 
     if result.matched_count == 0:
-        print(f"No matching league found. A new document may have been created.")
+        print("No matching league found. A new document may have been created.")
     elif result.modified_count > 0:
-        print(
-            f"Waiver results successfully updated for league ID: {DRAFT_LEAGUE_ID}")
+        print(f"Waiver results successfully updated for league ID: {DRAFT_LEAGUE_ID}")
     else:
-        print(f"Waiver results were already up to date. No changes made.")
+        print("Waiver results were already up to date. No changes made.")
 
     return jsonify({"message": "Waiver results generated", "waiverResults": waiverResults}), 200
-
-
-# push_waiver_to_history_and_reset is now imported from utils.py
-
-# print(get_waiver_dict(str(DRAFT_LEAGUE_ID)))
-
-
-# get_waiver_dict(str(DRAFT_LEAGUE_ID))
-# print(generate_waiver_process(
- #   str(DRAFT_LEAGUE_ID), generateEmpty=True))
-
-#final_generate_waiver_results(generateEmpty=False)
-#final_generate_waiver_results(generateEmpty=True)
-
-# push_waiver_to_history_and_reset(str(DRAFT_LEAGUE_ID))  # draft
-# push_waiver_to_history_and_reset('67d4dd408786c3e1b4ee172a')  # auction
-
-'''
-print(generate_waiver_process(
-    str(DRAFT_LEAGUE_ID), generateEmpty=False))
-
-print(get_result(str(DRAFT_LEAGUE_ID), 'Phil Salt',
-      'Jitesh Sharma', 'MotaBhai ChotaBhai'))
-print(get_result(str(DRAFT_LEAGUE_ID), 'Phil Salt',
-      '', 'MotaBhai ChotaBhai'))
-print(get_result(str(DRAFT_LEAGUE_ID), '',
-      'Jitesh Sharma', 'MotaBhai ChotaBhai'))
-print(get_result(str(DRAFT_LEAGUE_ID), 'Phil Salt',
-      'Priyansh Arya', 'MotaBhai ChotaBhai'))
-'''
