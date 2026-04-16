@@ -165,6 +165,7 @@ def get_leaderboard(database):
         user = database.users.find_one({"_id": entry["userId"]}, {"name": 1})
         user_name = user["name"] if user and "name" in user else entry["userId"]
         result.append({
+            "userId": entry["userId"],
             "userName": user_name,
             "totalPoints": entry.get("totalPoints", 0),
             "currentStreak": entry.get("currentStreak", 0),

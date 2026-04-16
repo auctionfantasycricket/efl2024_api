@@ -297,4 +297,4 @@ class TestLeaderboardEndpoint:
         mock_db.users.find_one.return_value = {"name": "Manali"}
 
         result = get_leaderboard(mock_db)
-        assert set(result[0].keys()) == {"userName", "totalPoints", "currentStreak", "maxStreak"}
+        assert set(result[0].keys()) == {"userId", "userName", "totalPoints", "currentStreak", "maxStreak"}
