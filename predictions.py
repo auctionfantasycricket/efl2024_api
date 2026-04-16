@@ -152,6 +152,9 @@ def team_code_from_feed(match, team_id):
     return ''
 
 
+LOCKED_STATUSES = {"Locked", "Post"}
+
+
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
@@ -222,3 +225,68 @@ def sync_matches():
         "resulted": resulted,
         "scored": len(resulted) > 0,
     }), 200
+
+
+@predictions_bp.route('/predictions/save', methods=['POST'])
+def save_prediction():
+    data = request.json or {}
+    user_id = data.get("userId")
+    match_id = data.get("matchId")
+    predicted_winner = data.get("predictedWinner")  # null/empty = clear
+
+    if not user_id or not match_id:
+        return jsonify({"error": "userId and matchId are required"}), 400
+
+    match = db.schedule.find_one({"matchId": match_id}, {"_id": 0})
+    if not match:
+        return jsonify({"error": "Match not found"}), 404
+
+    if match["status"] in LOCKED_STATUSES:
+        return jsonify({"error": "Match has started, predictions are locked"}), 403
+
+    # Clear
+    if not predicted_winner:
+        result = db.predictions.delete_one({"userId": user_id, "matchId": match_id})
+        if result.deleted_count == 0:
+            return jsonify({"error": "No prediction found to clear"}), 404
+        return jsonify({"message": "Prediction cleared"}), 200
+
+    # Insert or update
+    db.predictions.update_one(
+        {"userId": user_id, "matchId": match_id},
+        {"$set": {
+            "predictedWinner": predicted_winner,
+            "submittedAt": datetime.now(timezone.utc),
+        },
+        "$setOnInsert": {
+            "matchId": match_id,
+            "matchNumber": match["matchNumber"],
+            "userId": user_id,
+            "isCorrect": None,
+            "correctPoints": None,
+            "streakPoints": None,
+            "totalPoints": None,
+            "streakLength": None,
+        }},
+        upsert=True
+    )
+    return jsonify({"message": "Prediction saved", "matchId": match_id, "predictedWinner": predicted_winner}), 200
+
+
+@predictions_bp.route('/predictions/my', methods=['GET'])
+def my_predictions():
+    user_id = request.args.get("userId")
+    if not user_id:
+        return jsonify({"error": "userId is required"}), 400
+
+    preds = list(db.predictions.find(
+        {"userId": user_id},
+        {"_id": 0}
+    ).sort([("matchNumber", -1)]))
+
+    for p in preds:
+        if p.get("submittedAt"):
+            ist_dt = p["submittedAt"] + IST
+            p["submittedAt"] = ist_dt.strftime("%Y-%m-%d %H:%M IST")
+
+    return jsonify({"userId": user_id, "predictions": preds}), 200
