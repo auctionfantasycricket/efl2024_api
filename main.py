@@ -13,6 +13,7 @@ import logging
 import jwt
 from transfers import transfers_bp
 from waivers import waivers_bp
+from predictions import predictions_bp
 
 
 @app.route('/version', methods=['GET'])
@@ -1398,6 +1399,7 @@ app.register_blueprint(draftapi_bp)
 app.register_blueprint(liveupdates_bp)
 app.register_blueprint(transfers_bp, name="transfers_unique")
 app.register_blueprint(waivers_bp)
+app.register_blueprint(predictions_bp)
 
 if __name__ == '__main__':
     # Run the Flask app on http://127.0.0.1:5000/
