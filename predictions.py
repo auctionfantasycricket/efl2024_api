@@ -154,6 +154,41 @@ def team_code_from_feed(match, team_id):
 
 LOCKED_STATUSES = {"Locked", "Post"}
 
+DUMMY_SCHEDULE = {
+    "today": "2026-04-16",
+    "tomorrow": "2026-04-17",
+    "matches": [
+        {"matchId": 2464, "matchNumber": 24, "team1": "MI", "team2": "PBKS",
+         "date": "2026-04-16", "scheduledAt": "2026-04-16 19:30 IST",
+         "venue": "Wankhede Stadium", "status": "UpComing", "result": "", "winner": ""},
+        {"matchId": 2465, "matchNumber": 25, "team1": "GT", "team2": "KKR",
+         "date": "2026-04-17", "scheduledAt": "2026-04-17 19:30 IST",
+         "venue": "Narendra Modi Stadium", "status": "UpComing", "result": "", "winner": ""},
+    ]
+}
+
+DUMMY_MY_PREDICTIONS = {
+    "predictions": [
+        {"matchId": 2464, "matchNumber": 24, "predictedWinner": "MI",
+         "submittedAt": "2026-04-16 18:00 IST", "isCorrect": True,
+         "correctPoints": 10, "streakPoints": 0, "streakLength": 1, "totalPoints": 10},
+        {"matchId": 2463, "matchNumber": 23, "predictedWinner": "RCB",
+         "submittedAt": "2026-04-15 18:30 IST", "isCorrect": True,
+         "correctPoints": 10, "streakPoints": 2, "streakLength": 2, "totalPoints": 12},
+        {"matchId": 2462, "matchNumber": 22, "predictedWinner": "CSK",
+         "submittedAt": "2026-04-14 19:00 IST", "isCorrect": False,
+         "correctPoints": 0, "streakPoints": 0, "streakLength": 0, "totalPoints": 0},
+    ]
+}
+
+DUMMY_LEADERBOARD = {
+    "leaderboard": [
+        {"userId": "abc123", "userName": "Sakshar", "totalPoints": 85, "currentStreak": 3, "maxStreak": 5},
+        {"userId": "xyz456", "userName": "Shashank", "totalPoints": 72, "currentStreak": 2, "maxStreak": 4},
+        {"userId": "def789", "userName": "Rohit", "totalPoints": 50, "currentStreak": 1, "maxStreak": 3},
+    ]
+}
+
 
 def get_leaderboard(database):
     """Return leaderboard sorted by totalPoints desc, with userName joined from users."""
@@ -180,6 +215,9 @@ def get_leaderboard(database):
 
 @predictions_bp.route('/schedule/today', methods=['GET'])
 def get_today_schedule():
+    if request.args.get('dummy', '').lower() == 'true':
+        return jsonify(DUMMY_SCHEDULE), 200
+
     today_dt = datetime.now(timezone.utc) + IST
     today = today_dt.strftime("%Y-%m-%d")
     tomorrow = (today_dt + timedelta(days=1)).strftime("%Y-%m-%d")
@@ -257,6 +295,8 @@ def sync_matches():
 
 @predictions_bp.route('/predictions/leaderboard', methods=['GET'])
 def leaderboard():
+    if request.args.get('dummy', '').lower() == 'true':
+        return jsonify(DUMMY_LEADERBOARD), 200
     return jsonify({"leaderboard": get_leaderboard(db)}), 200
 
 
@@ -308,6 +348,10 @@ def save_prediction():
 
 @predictions_bp.route('/predictions/my', methods=['GET'])
 def my_predictions():
+    if request.args.get('dummy', '').lower() == 'true':
+        user_id = request.args.get("userId", "dummyUser")
+        return jsonify({"userId": user_id, **DUMMY_MY_PREDICTIONS}), 200
+
     user_id = request.args.get("userId")
     if not user_id:
         return jsonify({"error": "userId is required"}), 400
