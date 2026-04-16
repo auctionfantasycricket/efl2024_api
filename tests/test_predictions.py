@@ -207,3 +207,94 @@ class TestLeaderboard:
         call_args = mock_db.prediction_leaderboard.update_one.call_args
         update_doc = call_args[0][1]
         assert update_doc["$set"]["currentStreak"] == 0
+
+
+# ---------------------------------------------------------------------------
+# GET /predictions/leaderboard
+# ---------------------------------------------------------------------------
+
+class TestLeaderboardEndpoint:
+
+    def _make_entry(self, user_id, total_points, current_streak, max_streak):
+        return {
+            "userId": user_id,
+            "totalPoints": total_points,
+            "currentStreak": current_streak,
+            "maxStreak": max_streak,
+        }
+
+    def test_empty_leaderboard_returns_empty_list(self):
+        """No entries in prediction_leaderboard → empty array."""
+        from predictions import get_leaderboard
+
+        mock_db = MagicMock()
+        mock_db.prediction_leaderboard.find.return_value = []
+        mock_db.users.find_one.return_value = None
+
+        result = get_leaderboard(mock_db)
+        assert result == []
+
+    def test_sorted_by_total_points_descending(self):
+        """Higher totalPoints appears first."""
+        from predictions import get_leaderboard
+
+        entries = [
+            self._make_entry("user1", 30, 2, 3),
+            self._make_entry("user2", 85, 5, 7),
+            self._make_entry("user3", 50, 1, 4),
+        ]
+
+        mock_db = MagicMock()
+        mock_cursor = MagicMock()
+        mock_cursor.__iter__ = MagicMock(return_value=iter(entries))
+        mock_db.prediction_leaderboard.find.return_value = mock_cursor
+        mock_db.users.find_one.return_value = None
+
+        result = get_leaderboard(mock_db)
+        points = [r["totalPoints"] for r in result]
+        assert points == sorted(points, reverse=True)
+
+    def test_username_joined_from_users(self):
+        """userName pulled from db.users by userId."""
+        from predictions import get_leaderboard
+
+        entries = [self._make_entry("user1", 50, 2, 3)]
+
+        mock_db = MagicMock()
+        mock_cursor = MagicMock()
+        mock_cursor.__iter__ = MagicMock(return_value=iter(entries))
+        mock_db.prediction_leaderboard.find.return_value = mock_cursor
+        mock_db.users.find_one.return_value = {"name": "Sakshar"}
+
+        result = get_leaderboard(mock_db)
+        assert result[0]["userName"] == "Sakshar"
+
+    def test_missing_user_falls_back_to_userid(self):
+        """If user not found in db.users, fallback to userId."""
+        from predictions import get_leaderboard
+
+        entries = [self._make_entry("user_ghost", 20, 1, 1)]
+
+        mock_db = MagicMock()
+        mock_cursor = MagicMock()
+        mock_cursor.__iter__ = MagicMock(return_value=iter(entries))
+        mock_db.prediction_leaderboard.find.return_value = mock_cursor
+        mock_db.users.find_one.return_value = None
+
+        result = get_leaderboard(mock_db)
+        assert result[0]["userName"] == "user_ghost"
+
+    def test_only_expected_fields_returned(self):
+        """Response contains only userName, totalPoints, currentStreak, maxStreak."""
+        from predictions import get_leaderboard
+
+        entries = [self._make_entry("user1", 40, 2, 4)]
+
+        mock_db = MagicMock()
+        mock_cursor = MagicMock()
+        mock_cursor.__iter__ = MagicMock(return_value=iter(entries))
+        mock_db.prediction_leaderboard.find.return_value = mock_cursor
+        mock_db.users.find_one.return_value = {"name": "Manali"}
+
+        result = get_leaderboard(mock_db)
+        assert set(result[0].keys()) == {"userName", "totalPoints", "currentStreak", "maxStreak"}

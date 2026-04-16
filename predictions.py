@@ -155,6 +155,24 @@ def team_code_from_feed(match, team_id):
 LOCKED_STATUSES = {"Locked", "Post"}
 
 
+def get_leaderboard(database):
+    """Return leaderboard sorted by totalPoints desc, with userName joined from users."""
+    entries = list(database.prediction_leaderboard.find({}, {"_id": 0}))
+    entries.sort(key=lambda x: x.get("totalPoints", 0), reverse=True)
+
+    result = []
+    for entry in entries:
+        user = database.users.find_one({"_id": entry["userId"]}, {"name": 1})
+        user_name = user["name"] if user and "name" in user else entry["userId"]
+        result.append({
+            "userName": user_name,
+            "totalPoints": entry.get("totalPoints", 0),
+            "currentStreak": entry.get("currentStreak", 0),
+            "maxStreak": entry.get("maxStreak", 0),
+        })
+    return result
+
+
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
@@ -225,6 +243,11 @@ def sync_matches():
         "resulted": resulted,
         "scored": len(resulted) > 0,
     }), 200
+
+
+@predictions_bp.route('/predictions/leaderboard', methods=['GET'])
+def leaderboard():
+    return jsonify({"leaderboard": get_leaderboard(db)}), 200
 
 
 @predictions_bp.route('/predictions/save', methods=['POST'])
