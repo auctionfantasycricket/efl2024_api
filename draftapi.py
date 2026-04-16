@@ -40,17 +40,14 @@ def update_owner_items(owner_items, player_data):
     if player_data["isOverseas"]:
         owner_items["fCount"] += 1
 
-    # Iterate through draftSequence to find the first empty string and update it
+    # Fill the first empty slot in draftSequence; do nothing if no slot exists
     if "draftSequence" not in owner_items:
-        owner_items["draftSequence"] = []  # Initialize if missing
+        owner_items["draftSequence"] = []
 
     for i, name in enumerate(owner_items["draftSequence"]):
-        if not name.strip():  # Check if the string is empty after stripping whitespace
+        if not name.strip():
             owner_items["draftSequence"][i] = player_data["player_name"]
-            break  # Stop iterating after updating the first empty string
-    else:
-        # No empty slot found (draftSequence shorter than rounds) — append
-        owner_items["draftSequence"].append(player_data["player_name"])
+            break
 
     return owner_items
 
