@@ -169,14 +169,14 @@ DUMMY_SCHEDULE = {
 
 DUMMY_MY_PREDICTIONS = {
     "predictions": [
-        {"matchId": 2464, "matchNumber": 24, "predictedWinner": "MI",
-         "submittedAt": "2026-04-16 18:00 IST", "isCorrect": True,
+        {"matchId": 2464, "matchNumber": 24, "team1": "MI", "team2": "PBKS",
+         "predictedWinner": "MI", "submittedAt": "2026-04-16 18:00 IST", "isCorrect": True,
          "correctPoints": 10, "streakPoints": 0, "streakLength": 1, "totalPoints": 10},
-        {"matchId": 2463, "matchNumber": 23, "predictedWinner": "RCB",
-         "submittedAt": "2026-04-15 18:30 IST", "isCorrect": True,
+        {"matchId": 2463, "matchNumber": 23, "team1": "RCB", "team2": "LSG",
+         "predictedWinner": "RCB", "submittedAt": "2026-04-15 18:30 IST", "isCorrect": True,
          "correctPoints": 10, "streakPoints": 2, "streakLength": 2, "totalPoints": 12},
-        {"matchId": 2462, "matchNumber": 22, "predictedWinner": "CSK",
-         "submittedAt": "2026-04-14 19:00 IST", "isCorrect": False,
+        {"matchId": 2462, "matchNumber": 22, "team1": "CSK", "team2": "KKR",
+         "predictedWinner": "CSK", "submittedAt": "2026-04-14 19:00 IST", "isCorrect": False,
          "correctPoints": 0, "streakPoints": 0, "streakLength": 0, "totalPoints": 0},
     ]
 }
@@ -361,9 +361,20 @@ def my_predictions():
         {"_id": 0}
     ).sort([("matchNumber", -1)]))
 
+    match_ids = [p["matchId"] for p in preds]
+    schedule = {
+        m["matchId"]: m for m in db.schedule.find(
+            {"matchId": {"$in": match_ids}},
+            {"_id": 0, "matchId": 1, "team1": 1, "team2": 1}
+        )
+    }
+
     for p in preds:
         if p.get("submittedAt"):
             ist_dt = p["submittedAt"] + IST
             p["submittedAt"] = ist_dt.strftime("%Y-%m-%d %H:%M IST")
+        match = schedule.get(p["matchId"], {})
+        p["team1"] = match.get("team1", "")
+        p["team2"] = match.get("team2", "")
 
     return jsonify({"userId": user_id, "predictions": preds}), 200
