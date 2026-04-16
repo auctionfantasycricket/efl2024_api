@@ -179,16 +179,25 @@ def get_leaderboard(database):
 
 @predictions_bp.route('/schedule/today', methods=['GET'])
 def get_today_schedule():
-    today = ist_today()
+    today_dt = datetime.now(timezone.utc) + IST
+    today = today_dt.strftime("%Y-%m-%d")
+    tomorrow = (today_dt + timedelta(days=1)).strftime("%Y-%m-%d")
+
     matches = list(db.schedule.find(
-        {"date": today},
+        {"date": {"$in": [today, tomorrow]}},
         {"_id": 0}
-    ).sort("scheduledAt", 1))
+    ).sort([("scheduledAt", 1)]))
+
     for m in matches:
         if m.get("scheduledAt"):
             ist_dt = m["scheduledAt"] + IST
             m["scheduledAt"] = ist_dt.strftime("%Y-%m-%d %H:%M IST")
-    return jsonify({"date": today, "matches": matches}), 200
+
+    return jsonify({
+        "today": today,
+        "tomorrow": tomorrow,
+        "matches": matches
+    }), 200
 
 
 @predictions_bp.route('/cron/sync-matches', methods=['POST'])
