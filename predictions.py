@@ -356,8 +356,20 @@ def my_predictions():
     if not user_id:
         return jsonify({"error": "userId is required"}), 400
 
+    query = {"userId": user_id}
+    if request.args.get('today', '').lower() == 'true':
+        today_dt = datetime.now(timezone.utc) + IST
+        today = today_dt.strftime("%Y-%m-%d")
+        tomorrow = (today_dt + timedelta(days=1)).strftime("%Y-%m-%d")
+        today_match_ids = [
+            m["matchId"] for m in db.schedule.find(
+                {"date": {"$in": [today, tomorrow]}}, {"matchId": 1}
+            )
+        ]
+        query["matchId"] = {"$in": today_match_ids}
+
     preds = list(db.predictions.find(
-        {"userId": user_id},
+        query,
         {"_id": 0}
     ).sort([("matchNumber", -1)]))
 
