@@ -89,15 +89,19 @@ def update_score_from_mycric():
 
 
 def increment_match_id():
+    from datetime import timezone as tz, timedelta
+    IST = timedelta(hours=5, minutes=30)
+    tomorrow = (datetime.now(tz.utc) + IST + timedelta(days=1)).strftime("%Y-%m-%d")
+    tomorrow_count = db.schedule.count_documents({"date": tomorrow})
+    increment_by = tomorrow_count if tomorrow_count > 0 else 1
 
     global_collection = db["global_data"]
-
     last_match_id = get_global_data("last-match-id")
-    new_match_id = last_match_id + 1
+    new_match_id = last_match_id + increment_by
 
     global_collection.update_one(
         {}, {"$set": {"last-match-id": new_match_id}}, upsert=True)
-    print("updated match id to " + str(new_match_id))
+    print(f"updated match id by {increment_by} (tomorrow has {tomorrow_count} matches) → {new_match_id}")
 
 
 # get_global_data is now imported from utils.py
