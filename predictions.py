@@ -3,6 +3,7 @@ import json
 import urllib.request
 from flask import Blueprint, jsonify, request
 from datetime import datetime, timezone, timedelta
+from bson import ObjectId
 from config import db
 
 predictions_bp = Blueprint('predictions', __name__)
@@ -197,7 +198,7 @@ def get_leaderboard(database):
 
     result = []
     for entry in entries:
-        user = database.users.find_one({"_id": entry["userId"]}, {"name": 1})
+        user = database.users.find_one({"_id": ObjectId(entry["userId"])}, {"name": 1})
         user_name = user["name"] if user and "name" in user else entry["userId"]
         result.append({
             "userId": entry["userId"],
