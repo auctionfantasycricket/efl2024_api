@@ -5,6 +5,7 @@ from utils import push_waiver_to_history_and_reset
 import base64
 import binascii
 from flask import Blueprint, jsonify, request
+from datetime import datetime, timedelta
 import add_drop
 
 
@@ -140,6 +141,25 @@ def generate_waiver_results(waiver_order, generateEmpty=True):
     return waiver_results
 
 
+def _advance_draft_deadline():
+    """Bump nextDraftDeadline forward by 7 days, preserving the time-of-day."""
+    global_data = db.global_data.find_one({}, {"nextDraftDeadline": 1})
+    if not global_data or "nextDraftDeadline" not in global_data:
+        print("nextDraftDeadline not found in global_data, skipping advance")
+        return
+    current = global_data["nextDraftDeadline"]
+    # Format: "April 14, 2026 at 9:00PM (PST)"
+    try:
+        dt = datetime.strptime(current.split(" (")[0], "%B %d, %Y at %I:%M%p")
+        next_dt = dt + timedelta(weeks=1)
+        suffix = current.split(" (")[1].rstrip(")")  # e.g. "PST"
+        new_deadline = next_dt.strftime("%B %-d, %Y at %-I:%M%p") + f" ({suffix})"
+        db.global_data.update_one({}, {"$set": {"nextDraftDeadline": new_deadline}})
+        print(f"nextDraftDeadline advanced: {current} → {new_deadline}")
+    except Exception as e:
+        print(f"Failed to advance nextDraftDeadline: {e}")
+
+
 @waivers_bp.route('/final_generate_waiver_results', methods=['POST'])
 def final_generate_waiver_results():
     generateEmpty = request.args.get('generateEmpty', 'true').lower() == 'true'
@@ -152,6 +172,7 @@ def final_generate_waiver_results():
     )
     if not generateEmpty:
         push_waiver_to_history_and_reset(str(DRAFT_LEAGUE_ID))
+        _advance_draft_deadline()
 
     print(f"Matched: {result.matched_count}, Modified: {result.modified_count}")
 
