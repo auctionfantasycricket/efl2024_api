@@ -89,11 +89,13 @@ def update_score_from_mycric():
 
 
 def increment_match_id():
-    from datetime import timezone as tz, timedelta
-    IST = timedelta(hours=5, minutes=30)
-    tomorrow = (datetime.now(tz.utc) + IST + timedelta(days=1)).strftime("%Y-%m-%d")
-    tomorrow_count = db.schedule.count_documents({"date": tomorrow})
-    increment_by = tomorrow_count if tomorrow_count > 0 else 1
+    # The IPL fantasy API uses one matchId per match, so double-header days need +2.
+    # EOD runs at noon PST — use today's PST date to get the correct schedule count.
+    # (The old code used IST "tomorrow" which landed 2 days ahead in PST, giving wrong counts.)
+    PDT = timedelta(hours=-7)
+    today_pst = (datetime.now(timezone.utc) + PDT).strftime("%Y-%m-%d")
+    today_count = db.schedule.count_documents({"date": today_pst})
+    increment_by = today_count if today_count > 0 else 1
 
     global_collection = db["global_data"]
     last_match_id = get_global_data("last-match-id")
@@ -101,7 +103,7 @@ def increment_match_id():
 
     global_collection.update_one(
         {}, {"$set": {"last-match-id": new_match_id}}, upsert=True)
-    print(f"updated match id by {increment_by} (tomorrow has {tomorrow_count} matches) → {new_match_id}")
+    print(f"updated match id by {increment_by} (today {today_pst} has {today_count} matches) → {new_match_id}")
 
 
 # get_global_data is now imported from utils.py
