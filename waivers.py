@@ -1,7 +1,7 @@
 from bson.objectid import ObjectId
 from bson import ObjectId
 from config import db, DRAFT_LEAGUE_ID
-from utils import push_waiver_to_history_and_reset
+from utils import push_waiver_to_history_and_reset, violated_rules
 import base64
 import binascii
 from flask import Blueprint, jsonify, request
@@ -37,6 +37,51 @@ def get_waiver_dict(leagueId):
         current_waiver = team.get("currentWaiver", {"out": [], "in": []})
         waiver_dict[team_name] = current_waiver
     return waiver_dict
+
+
+def check_swap_composition(team_name, drop_name, pick_name, league_id=None):
+    """Return (True, '') if the swap is valid, or (False, reason) if it breaks squad rules."""
+    query = {"teamName": team_name}
+    if league_id:
+        query["leagueId"] = ObjectId(league_id)
+    team = db.teams.find_one(
+        query,
+        {"batCount": 1, "ballCount": 1, "arCount": 1, "fCount": 1}
+    )
+    if not team:
+        return False, f"Team '{team_name}' not found"
+
+    drop_meta = db.players.find_one({"player_name": drop_name}, {"player_role": 1, "isOverseas": 1})
+    pick_meta = db.players.find_one({"player_name": pick_name},  {"player_role": 1, "isOverseas": 1})
+
+    if not drop_meta:
+        return False, f"Player '{drop_name}' not found"
+    if not pick_meta:
+        return False, f"Player '{pick_name}' not found"
+
+    sim = {
+        "batCount":  team.get("batCount", 0),
+        "ballCount": team.get("ballCount", 0),
+        "arCount":   team.get("arCount", 0),
+        "fCount":    team.get("fCount", 0),
+    }
+
+    drop_role = drop_meta["player_role"].upper()
+    if drop_role == "BATTER":        sim["batCount"]  -= 1
+    elif drop_role == "BOWLER":      sim["ballCount"] -= 1
+    elif drop_role == "ALL_ROUNDER": sim["arCount"]   -= 1
+    if drop_meta.get("isOverseas"):  sim["fCount"]    -= 1
+
+    pick_role = pick_meta["player_role"].upper()
+    if pick_role == "BATTER":        sim["batCount"]  += 1
+    elif pick_role == "BOWLER":      sim["ballCount"] += 1
+    elif pick_role == "ALL_ROUNDER": sim["arCount"]   += 1
+    if pick_meta.get("isOverseas"):  sim["fCount"]    += 1
+
+    rules = violated_rules(sim)
+    if rules:
+        return False, f"breaks {', '.join(rules)} requirement"
+    return True, ""
 
 
 def do_the_trasnfers(nextdrop, nextpick, team):
@@ -111,10 +156,14 @@ def generate_waiver_results(waiver_order, generateEmpty=True):
                 elif nextpick in picked_players:
                     status, message = "failure", "Player already taken"
                 else:
-                    do_the_trasnfers(nextdrop, nextpick, team)
-                    status, message = "success", "Swap done"
-                    swapped_teams.add(team)
-                    picked_players.add(nextpick)
+                    is_valid, comp_error = check_swap_composition(team, nextdrop, nextpick, str(DRAFT_LEAGUE_ID))
+                    if not is_valid:
+                        status, message = "failure", f"Squad rule violation: {comp_error}"
+                    else:
+                        do_the_trasnfers(nextdrop, nextpick, team)
+                        status, message = "success", "Swap done"
+                        swapped_teams.add(team)
+                        picked_players.add(nextpick)
 
                 round_result["picks"].append({
                     "team": team,

@@ -1,7 +1,7 @@
 """Tests for the refactored waiver generation algorithm."""
 import base64
 import pytest
-from unittest.mock import patch, call
+from unittest.mock import patch, call, MagicMock
 
 
 # ---------------------------------------------------------------------------
@@ -37,12 +37,14 @@ def make_teams(prefs):
     return teams
 
 
-def run_results(waiver_order, prefs, generate_empty=False):
+def run_results(waiver_order, prefs, generate_empty=False, composition_valid=True):
     """Helper: run generate_waiver_results with mocked dict and transfers."""
     from waivers import generate_waiver_results
     waiver_dict = make_waiver_dict(prefs)
+    comp_return = (True, "") if composition_valid else (False, "breaks bowlers (min 2) requirement")
     with patch('waivers.get_waiver_dict', return_value=waiver_dict), \
-         patch('waivers.do_the_trasnfers') as mock_transfer:
+         patch('waivers.do_the_trasnfers') as mock_transfer, \
+         patch('waivers.check_swap_composition', return_value=comp_return):
         results = generate_waiver_results(waiver_order, generateEmpty=generate_empty)
     return results, mock_transfer
 
@@ -226,3 +228,143 @@ class TestGenerateWaiverProcess:
             results = generate_waiver_process("fake_id", generateEmpty=False)
 
         assert len(results) == 1
+
+
+# ---------------------------------------------------------------------------
+# violated_rules
+# ---------------------------------------------------------------------------
+
+class TestViolatedRules:
+
+    def test_valid_counts_returns_empty(self):
+        from utils import violated_rules
+        counts = {"batCount": 3, "ballCount": 3, "arCount": 3, "fCount": 2}
+        assert violated_rules(counts) == []
+
+    def test_too_few_batters(self):
+        from utils import violated_rules
+        counts = {"batCount": 1, "ballCount": 3, "arCount": 3, "fCount": 2}
+        assert "batters (min 2)" in violated_rules(counts)
+
+    def test_too_few_bowlers(self):
+        from utils import violated_rules
+        counts = {"batCount": 3, "ballCount": 1, "arCount": 3, "fCount": 2}
+        assert "bowlers (min 2)" in violated_rules(counts)
+
+    def test_too_few_all_rounders(self):
+        from utils import violated_rules
+        counts = {"batCount": 3, "ballCount": 3, "arCount": 1, "fCount": 2}
+        assert "all-rounders (min 2)" in violated_rules(counts)
+
+    def test_too_few_overseas(self):
+        from utils import violated_rules
+        counts = {"batCount": 3, "ballCount": 3, "arCount": 3, "fCount": 0}
+        assert "overseas (min 1)" in violated_rules(counts)
+
+    def test_too_many_overseas(self):
+        from utils import violated_rules
+        counts = {"batCount": 3, "ballCount": 3, "arCount": 3, "fCount": 4}
+        assert "overseas (max 3)" in violated_rules(counts)
+
+    def test_multiple_violations_returned(self):
+        from utils import violated_rules
+        counts = {"batCount": 1, "ballCount": 1, "arCount": 3, "fCount": 2}
+        violations = violated_rules(counts)
+        assert "batters (min 2)" in violations
+        assert "bowlers (min 2)" in violations
+
+
+# ---------------------------------------------------------------------------
+# check_swap_composition
+# ---------------------------------------------------------------------------
+
+class TestCheckSwapComposition:
+
+    def _make_team(self, bat=3, ball=3, ar=3, f=2):
+        return {"batCount": bat, "ballCount": ball, "arCount": ar, "fCount": f}
+
+    def _make_player(self, role, overseas=False):
+        return {"player_role": role, "isOverseas": overseas}
+
+    def test_valid_swap_returns_true(self):
+        from waivers import check_swap_composition
+        with patch('waivers.db') as mock_db:
+            mock_db.teams.find_one.return_value = self._make_team()
+            mock_db.players.find_one.side_effect = [
+                self._make_player("BOWLER"),   # drop
+                self._make_player("BOWLER"),   # pick
+            ]
+            valid, msg = check_swap_composition("Team A", "OldBowler", "NewBowler")
+        assert valid is True
+        assert msg == ""
+
+    def test_swap_that_drops_below_min_bowlers_fails(self):
+        from waivers import check_swap_composition
+        with patch('waivers.db') as mock_db:
+            mock_db.teams.find_one.return_value = self._make_team(ball=2)
+            mock_db.players.find_one.side_effect = [
+                self._make_player("BOWLER"),   # drop — takes ballCount to 1
+                self._make_player("BATTER"),   # pick — does not restore it
+            ]
+            valid, msg = check_swap_composition("Team A", "Bowler1", "Batter1")
+        assert valid is False
+        assert "bowlers (min 2)" in msg
+
+    def test_swap_that_exceeds_max_overseas_fails(self):
+        from waivers import check_swap_composition
+        with patch('waivers.db') as mock_db:
+            mock_db.teams.find_one.return_value = self._make_team(f=3)
+            mock_db.players.find_one.side_effect = [
+                self._make_player("BATTER", overseas=False),  # drop — fCount stays 3
+                self._make_player("BATTER", overseas=True),   # pick — fCount → 4
+            ]
+            valid, msg = check_swap_composition("Team A", "Local1", "Foreign1")
+        assert valid is False
+        assert "overseas (max 3)" in msg
+
+    def test_team_not_found_returns_false(self):
+        from waivers import check_swap_composition
+        with patch('waivers.db') as mock_db:
+            mock_db.teams.find_one.return_value = None
+            valid, msg = check_swap_composition("Ghost Team", "P1", "P2")
+        assert valid is False
+        assert "not found" in msg
+
+    def test_drop_player_not_found_returns_false(self):
+        from waivers import check_swap_composition
+        with patch('waivers.db') as mock_db:
+            mock_db.teams.find_one.return_value = self._make_team()
+            mock_db.players.find_one.side_effect = [None, self._make_player("BATTER")]
+            valid, msg = check_swap_composition("Team A", "Ghost", "NewPlayer")
+        assert valid is False
+        assert "not found" in msg
+
+
+# ---------------------------------------------------------------------------
+# Squad composition check integrated into generate_waiver_results
+# ---------------------------------------------------------------------------
+
+class TestWaiverSquadCompositionCheck:
+
+    def test_composition_failure_blocks_swap(self):
+        """If check_swap_composition fails, swap is not executed and status is failure."""
+        prefs = {"Team A": [("Player1", "Drop1")]}
+        waiver_order = [["Team A"]]
+
+        results, mock_transfer = run_results(waiver_order, prefs, composition_valid=False)
+
+        pick = results[0]["picks"][0]
+        assert pick["status"] == "failure"
+        assert "Squad rule violation" in pick["message"]
+        assert mock_transfer.call_count == 0
+
+    def test_composition_success_allows_swap(self):
+        """If check_swap_composition passes, swap executes normally."""
+        prefs = {"Team A": [("Player1", "Drop1")]}
+        waiver_order = [["Team A"]]
+
+        results, mock_transfer = run_results(waiver_order, prefs, composition_valid=True)
+
+        pick = results[0]["picks"][0]
+        assert pick["status"] == "success"
+        assert mock_transfer.call_count == 1

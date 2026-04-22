@@ -1,6 +1,6 @@
 from flask import Blueprint, request
 from config import db, app, DRAFT_LEAGUE_ID, AUCTION_LEAGUE_ID, ASSOCIATE_NATIONS
-from utils import de_arr, _drop_player_core
+from utils import de_arr, _drop_player_core, violated_rules
 from bson import ObjectId, json_util
 from datetime import datetime, timedelta
 from collections import deque
@@ -147,18 +147,7 @@ def validate_waiver_data(current_waiver):
 
 
 def _violated_rules(counts):
-    rules = []
-    if counts['batCount'] < 2:
-        rules.append('batters (min 2)')
-    if counts['ballCount'] < 2:
-        rules.append('bowlers (min 2)')
-    if counts['arCount'] < 2:
-        rules.append('all-rounders (min 2)')
-    if counts['fCount'] < 1:
-        rules.append('overseas (min 1)')
-    if counts['fCount'] > 3:
-        rules.append('overseas (max 3)')
-    return rules
+    return violated_rules(counts)
 
 
 def validate_squad_composition(team_id, current_waiver):

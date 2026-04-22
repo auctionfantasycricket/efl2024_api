@@ -125,3 +125,23 @@ def de_arr(arr):
     """Base64-decode every element in arr and return a list of plain strings."""
     import base64
     return [base64.b64decode(a).decode('utf-8') for a in arr]
+
+
+# ---------------------------------------------------------------------------
+# Squad composition validation  (shared by draftapi.py and waivers.py)
+# ---------------------------------------------------------------------------
+
+def violated_rules(counts):
+    """Return a list of violated squad composition rules for the given counts."""
+    rules = []
+    if counts['batCount'] < 2:
+        rules.append('batters (min 2)')
+    if counts['ballCount'] < 2:
+        rules.append('bowlers (min 2)')
+    if counts['arCount'] < 2:
+        rules.append('all-rounders (min 2)')
+    if counts['fCount'] < 1:
+        rules.append('overseas (min 1)')
+    if counts['fCount'] > 3:
+        rules.append('overseas (max 3)')
+    return rules
