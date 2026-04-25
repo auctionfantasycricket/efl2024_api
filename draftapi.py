@@ -529,11 +529,6 @@ def update_current_waiver_api(userId, teamId):
 
         current_waiver = request.json.get('currentWaiver')
 
-        # Validate squad composition rules for each pair
-        is_valid_comp, comp_errors = validate_squad_composition(teamId, current_waiver)
-        if not is_valid_comp:
-            return json_util.dumps({'errors': comp_errors}), 400
-
         # Fetch user name from users collection
         user = db.users.find_one({'_id': ObjectId(userId)}, {'name': 1})
         if not user:
