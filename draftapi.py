@@ -170,9 +170,9 @@ def validate_squad_composition(team_id, current_waiver):
 
     errors = []
 
-    for i in range(len(in_raw)):
-        out_b64 = out_raw[i]
-        in_b64  = in_raw[i]
+    for i in range(max(len(in_raw), len(out_raw))):
+        out_b64 = out_raw[i] if i < len(out_raw) else ""
+        in_b64  = in_raw[i] if i < len(in_raw) else ""
 
         if not out_b64 or not in_b64:
             continue
