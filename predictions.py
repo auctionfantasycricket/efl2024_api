@@ -256,7 +256,7 @@ def sync_matches():
 
     # Step 2 — Fetch IPL feed and find newly completed matches
     feed = fetch_ipl_feed()
-    locked_in_db = list(db.schedule.find({"status": "Locked"}, {"_id": 0}))
+    locked_in_db = list(db.schedule.find({"status": "Locked"}, {"_id": 0}).sort("matchNumber", 1))
 
     resulted = []
     for match in locked_in_db:
